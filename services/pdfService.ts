@@ -30,9 +30,29 @@ declare global {
   }
 }
 
+// Helper to wait for PDF.js to load from CDN if it hasn't yet
+const waitForPdfJs = async (): Promise<PdfJsLib> => {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  
+  return new Promise((resolve, reject) => {
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (window.pdfjsLib) {
+        clearInterval(interval);
+        resolve(window.pdfjsLib);
+      } else if (attempts > 50) { // 5 seconds timeout
+        clearInterval(interval);
+        reject(new Error("PDF.js library failed to load from CDN. Please check your internet connection."));
+      }
+    }, 100);
+  });
+};
+
 export const loadPdf = async (file: File): Promise<PdfDocument> => {
+  const pdfLib = await waitForPdfJs();
   const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = window.pdfjsLib.getDocument(new Uint8Array(arrayBuffer));
+  const loadingTask = pdfLib.getDocument(new Uint8Array(arrayBuffer));
   return loadingTask.promise;
 };
 

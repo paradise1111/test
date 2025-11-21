@@ -22,12 +22,31 @@ export const clearCustomApiKey = () => {
   client = null;
 };
 
+// Helper to safely get env var without crashing in browser
+const getEnvApiKey = (): string | undefined => {
+  try {
+    // Check for Vite specific env injection first if available
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY;
+    }
+    
+    // Safe check for process.env
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    // Ignore reference errors in strict browser environments
+  }
+  return undefined;
+};
+
 const getClient = (): GoogleGenAI => {
   if (!client) {
     // Priority: Custom Key (User input) -> Env Key (Developer/Deployment)
-    // We check Custom Key first to allow overriding the env key if needed, 
-    // or fallback to Env key. 
-    const apiKey = customApiKey || process.env.API_KEY;
+    const envKey = getEnvApiKey();
+    const apiKey = customApiKey || envKey;
     
     if (!apiKey) {
       throw new Error("未配置 API Key。请点击右上角“设置 Key”按钮输入您的 Google Gemini API Key。");
