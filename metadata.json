@@ -1,0 +1,5 @@
+{
+  "name": "审稿数学",
+  "description": "An intelligent PDF reviewer for Chinese Mathematics education standards using Gemini and Google Search.",
+  "requestFramePermissions": []
+}
