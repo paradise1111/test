@@ -23,7 +23,7 @@ export const clearCustomApiKey = () => {
 };
 
 // Helper to safely get env var without crashing in browser
-const getEnvApiKey = (): string | undefined => {
+export const getEnvApiKey = (): string | undefined => {
   try {
     // Check for Vite specific env injection first if available
     // @ts-ignore

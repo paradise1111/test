@@ -4,7 +4,7 @@ import FileUpload from './components/FileUpload';
 import ProgressBar from './components/ProgressBar';
 import { AppState, ProcessingStatus, ReportRecord } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf } from './services/pdfService';
-import { analyzePageContent, setCustomApiKey, clearCustomApiKey } from './services/geminiService';
+import { analyzePageContent, setCustomApiKey, clearCustomApiKey, getEnvApiKey } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
 import { BookOpen, FileCheck, AlertCircle, PauseCircle, Settings, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, Key, X, ExternalLink, Share2, Globe, Copy, LogOut } from 'lucide-react';
 
@@ -229,18 +229,25 @@ function App() {
     if (!currentFile) return;
     
     // UX: Check for Key before starting
-    const hasKey = !!(process.env.API_KEY || apiKeyInput.trim() || (typeof localStorage !== 'undefined' && localStorage.getItem('gemini_api_key')));
+    // CRITICAL FIX: Use getEnvApiKey() instead of process.env.API_KEY to prevent browser crash
+    const hasKey = !!(getEnvApiKey() || apiKeyInput.trim() || (typeof localStorage !== 'undefined' && localStorage.getItem('gemini_api_key')));
     
     if (!hasKey) {
         setShowApiKeyModal(true);
         return;
     }
 
-    const pdf = await loadPdf(currentFile); 
-    const totalPages = pdf.numPages;
-    const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
-    
-    await executeReview(allPages, false);
+    try {
+        const pdf = await loadPdf(currentFile); 
+        const totalPages = pdf.numPages;
+        const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
+        
+        await executeReview(allPages, false);
+    } catch (error) {
+        console.error("Processing start error:", error);
+        setErrorMsg("启动失败：可能是 PDF 组件未能从网络加载，请检查网络连接或刷新页面重试。" + (error as Error).message);
+        setAppState(AppState.ERROR);
+    }
   };
 
   const handleRetryFailed = async () => {
