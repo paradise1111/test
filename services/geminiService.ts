@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_INSTRUCTION } from '../constants';
 
@@ -23,21 +22,17 @@ export const clearCustomApiKey = () => {
 };
 
 // Helper to safely get env var without crashing in browser
+// CRITICAL FIX: Removed 'process' reference entirely for Vite compatibility
 export const getEnvApiKey = (): string | undefined => {
   try {
-    // Check for Vite specific env injection first if available
+    // Check for Vite specific env injection
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
       // @ts-ignore
       return import.meta.env.VITE_API_KEY;
     }
-    
-    // Safe check for process.env
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env.API_KEY;
-    }
   } catch (e) {
-    // Ignore reference errors in strict browser environments
+    // Ignore reference errors
   }
   return undefined;
 };
