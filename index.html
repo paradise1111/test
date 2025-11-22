@@ -49,6 +49,28 @@
       body {
         overscroll-behavior-y: none;
       }
+
+      /* Progress Bar Animations */
+      @keyframes striping {
+        0% { background-position: 0 0; }
+        100% { background-position: 30px 0; }
+      }
+      
+      .progress-stripes {
+        background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
+        background-size: 30px 30px;
+        animation: striping 1s linear infinite;
+      }
+
+      @keyframes pulse-shadow {
+        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+        70% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+      }
+      
+      .animate-pulse-shadow {
+        animation: pulse-shadow 2s infinite;
+      }
     </style>
   <script type="importmap">
 {
@@ -62,10 +84,12 @@
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
     <!-- This script tag is CRITICAL for Vite to bundle the React code -->
     <script type="module" src="./index.tsx"></script>
-  </body>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>

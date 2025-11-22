@@ -4,9 +4,9 @@ import FileUpload from './components/FileUpload';
 import ProgressBar from './components/ProgressBar';
 import { AppState, ProcessingStatus, ReportRecord } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf } from './services/pdfService';
-import { analyzePageContent, setCustomApiKey, clearCustomApiKey, getEnvApiKey } from './services/geminiService';
+import { analyzePageContent, setCustomApiKey, clearCustomApiKey, getEnvApiKey, validateApiKey } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
-import { BookOpen, FileCheck, AlertCircle, PauseCircle, Settings, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, Key, X, ExternalLink, Share2, Globe, Copy, LogOut } from 'lucide-react';
+import { BookOpen, FileCheck, AlertCircle, PauseCircle, Settings, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, Key, X, ExternalLink, Share2, Globe, Copy, LogOut, Loader2 } from 'lucide-react';
 
 function App() {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -24,6 +24,8 @@ function App() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showShareAppModal, setShowShareAppModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [isValidatingKey, setIsValidatingKey] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
   
   // Check if there is a stored key on mount
   useEffect(() => {
@@ -63,19 +65,48 @@ function App() {
       setStatus({ total: 0, current: 0, isProcessing: false, currentStage: '' });
   };
 
-  const saveApiKey = () => {
-      if (apiKeyInput.trim()) {
-          setCustomApiKey(apiKeyInput.trim());
+  const saveApiKey = async () => {
+      const key = apiKeyInput.trim();
+      if (!key) {
+          setKeyError("请输入 API Key");
+          return;
+      }
+      
+      setIsValidatingKey(true);
+      setKeyError(null);
+      
+      try {
+          await validateApiKey(key);
+          setCustomApiKey(key);
           setShowApiKeyModal(false);
-          // No alert needed, just smoother UX
+          // Clear global error if it was key related
+          if (appState === AppState.ERROR && errorMsg?.includes('Key')) {
+             setAppState(AppState.IDLE);
+             setErrorMsg(null);
+          }
+      } catch (err: any) {
+          console.error(err);
+          let msg = "验证失败：无法连接到 API。请检查网络。";
+          const errMsg = err.message || '';
+          
+          if (errMsg.includes('403') || errMsg.includes('permission')) {
+              msg = "验证失败 (403)：Key 无权限。请确保对应的 Google Cloud 项目已开启 'Generative Language API'。";
+          } else if (errMsg.includes('404') || errMsg.includes('not found')) {
+              msg = "验证失败 (404)：该 Key 无法访问 'gemini-3-pro-preview' 模型。请检查您的账户类型。";
+          } else if (errMsg.includes('API_KEY_INVALID') || errMsg.includes('400')) {
+              msg = "验证失败：无效的 API Key。";
+          }
+          setKeyError(msg);
+      } finally {
+          setIsValidatingKey(false);
       }
   };
   
   const handleClearKey = () => {
       clearCustomApiKey();
       setApiKeyInput('');
-      setShowApiKeyModal(false);
-      alert("API Key 已清除。您现在处于访客模式。");
+      setKeyError(null);
+      // Don't close modal immediately, let user input new one or close manually
   };
 
   const copyCurrentUrl = () => {
@@ -437,7 +468,7 @@ function App() {
                           <Key className="w-5 h-5 text-blue-600" />
                           配置 API Key
                       </h3>
-                      <button onClick={() => setShowApiKeyModal(false)} className="text-gray-400 hover:text-gray-600">
+                      <button onClick={() => setShowApiKeyModal(false)} className="text-gray-400 hover:text-gray-600" disabled={isValidatingKey}>
                           <X className="w-5 h-5" />
                       </button>
                   </div>
@@ -450,9 +481,20 @@ function App() {
                       type="password" 
                       placeholder="输入您的 API Key (AIza...)" 
                       value={apiKeyInput}
-                      onChange={(e) => setApiKeyInput(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2 mb-3 focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
+                      onChange={(e) => {
+                          setApiKeyInput(e.target.value);
+                          setKeyError(null);
+                      }}
+                      disabled={isValidatingKey}
+                      className={`w-full border rounded-lg px-4 py-2 mb-2 focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm ${keyError ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
                   />
+                  
+                  {keyError && (
+                    <div className="text-xs text-red-600 mb-4 bg-red-50 p-2 rounded border border-red-100 flex items-start gap-1">
+                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>{keyError}</span>
+                    </div>
+                  )}
                   
                   <div className="mb-6 flex justify-between items-center">
                     <a 
@@ -463,7 +505,7 @@ function App() {
                     >
                         获取免费 Key <ExternalLink className="w-3 h-3" />
                     </a>
-                    {apiKeyInput && (
+                    {apiKeyInput && !isValidatingKey && (
                         <button 
                             onClick={handleClearKey}
                             className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50"
@@ -476,15 +518,22 @@ function App() {
                   <div className="flex justify-end gap-3">
                       <button 
                           onClick={() => setShowApiKeyModal(false)}
-                          className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+                          className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                          disabled={isValidatingKey}
                       >
                           取消
                       </button>
                       <button 
                           onClick={saveApiKey}
-                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-sm shadow-blue-200"
+                          disabled={!apiKeyInput.trim() || isValidatingKey}
+                          className={`px-4 py-2 rounded-lg font-medium shadow-sm shadow-blue-200 flex items-center gap-2 transition-all ${
+                              !apiKeyInput.trim() || isValidatingKey 
+                                ? 'bg-blue-400 cursor-not-allowed text-blue-100' 
+                                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                          }`}
                       >
-                          保存并使用
+                          {isValidatingKey && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {isValidatingKey ? '验证中...' : '验证并保存'}
                       </button>
                   </div>
               </div>
@@ -508,6 +557,7 @@ function App() {
                         <FileUpload 
                             onFileSelect={handleFileSelect} 
                             onError={handleFileError}
+                            disabled={isValidatingKey}
                         />
 
                         {currentFile && (
@@ -545,7 +595,8 @@ function App() {
 
                                 <button 
                                     onClick={startProcessing}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98]"
+                                    disabled={isValidatingKey}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
                                 >
                                     开始极速审阅
                                 </button>
