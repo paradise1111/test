@@ -6,7 +6,7 @@ import { AppState, ProcessingStatus, ReportRecord } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf } from './services/pdfService';
 import { analyzePageContent, setCustomApiKey, clearCustomApiKey, getEnvApiKey, validateApiKey } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
-import { BookOpen, FileCheck, AlertCircle, PauseCircle, Settings, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, Key, X, ExternalLink, Share2, Globe, Copy, LogOut, Loader2 } from 'lucide-react';
+import { BookOpen, FileCheck, AlertCircle, PauseCircle, Settings, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, Key, X, ExternalLink, Globe, Copy, LogOut, Loader2 } from 'lucide-react';
 
 function App() {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -27,7 +27,7 @@ function App() {
   const [isValidatingKey, setIsValidatingKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   
-  // Check if there is a stored key on mount
+  // 1. Load API Key on Mount
   useEffect(() => {
     if (typeof localStorage !== 'undefined') {
         const storedKey = localStorage.getItem('gemini_api_key');
@@ -36,6 +36,39 @@ function App() {
         }
     }
   }, []);
+
+  // 2. Load History on Mount
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') {
+        try {
+            const savedHistory = localStorage.getItem('math_edit_history');
+            if (savedHistory) {
+                const parsed = JSON.parse(savedHistory);
+                if (Array.isArray(parsed)) {
+                    setHistory(parsed);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load history from local storage", e);
+        }
+    }
+  }, []);
+
+  // 3. Persist History when it changes
+  useEffect(() => {
+      if (typeof localStorage !== 'undefined' && history.length > 0) {
+          try {
+              // Limit history to last 10 items to prevent QuotaExceededError
+              // since HTML content can be large.
+              const safeHistory = history.slice(0, 10);
+              localStorage.setItem('math_edit_history', JSON.stringify(safeHistory));
+          } catch (e) {
+              console.warn("LocalStorage full, could not save history update.", e);
+          }
+      } else if (history.length === 0 && typeof localStorage !== 'undefined') {
+          localStorage.removeItem('math_edit_history');
+      }
+  }, [history]);
   
   // Ref to control the stopping of the process
   const stopProcessingRef = useRef<boolean>(false);
@@ -138,7 +171,11 @@ function App() {
         pageOffset: pageOffset
     };
 
-    setHistory(prev => [record, ...prev]);
+    setHistory(prev => {
+        // Prevent duplicates if archive is called multiple times for same session
+        if (prev.length > 0 && prev[0].timestamp === record.timestamp) return prev;
+        return [record, ...prev];
+    });
   }, [currentFile, results, pageOffset]);
 
   /**
@@ -171,10 +208,13 @@ function App() {
         isProcessing: true,
         currentStage: preserveResults 
             ? `准备重试 ${pagesToProcess.length} 个失败页面...` 
-            : `共 ${totalPages} 页，启动极速验算模式...`,
+            : `共 ${totalPages} 页，启动并行审阅模式 (5路并发)...`,
       });
 
-      const CONCURRENCY_LIMIT = 3; 
+      // INCREASED CONCURRENCY:
+      // We process up to 5 pages in parallel.
+      // Combined with the rate-limit handling in geminiService, this speeds up processing significantly.
+      const CONCURRENCY_LIMIT = 5; 
       const queue = [...pagesToProcess]; 
       
       const worker = async (workerId: number) => {
@@ -183,8 +223,9 @@ function App() {
             if (!pageNum) break;
 
             try {
-                if (workerId === 1) {
-                   setStatus(prev => ({ ...prev, currentStage: `正在验算第 ${pageNum} 页...` }));
+                // UI feedback: Only update stage text occasionally to avoid flickering
+                if (queue.length % 2 === 0) {
+                   setStatus(prev => ({ ...prev, currentStage: `正在并行验算中 (剩余 ${queue.length} 页)...` }));
                 }
 
                 const imgData = await renderPageToImage(pdf, pageNum);
@@ -260,7 +301,6 @@ function App() {
     if (!currentFile) return;
     
     // UX: Check for Key before starting
-    // CRITICAL FIX: Use getEnvApiKey() instead of process.env.API_KEY to prevent browser crash
     const hasKey = !!(getEnvApiKey() || apiKeyInput.trim() || (typeof localStorage !== 'undefined' && localStorage.getItem('gemini_api_key')));
     
     if (!hasKey) {
@@ -343,31 +383,6 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
-
-  const shareReport = async (recordResults: string[], fileName: string, offset: number) => {
-    const fullHtml = generateFullHtml(recordResults, fileName, offset);
-    if (!fullHtml) return;
-
-    try {
-        const htmlBlob = new Blob([fullHtml], { type: 'text/html' });
-        const htmlFile = new File([htmlBlob], `${fileName.replace('.pdf', '')}_数学审稿报告.html`, { type: 'text/html' });
-
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [htmlFile] })) {
-            await navigator.share({
-                files: [htmlFile],
-                title: 'MathEdit AI 审稿报告',
-                text: `这是 ${fileName} 的审稿报告，请查收。`
-            });
-        } else {
-            alert('您的浏览器暂不支持直接文件分享，请点击“下载”后手动发送文件。');
-        }
-    } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-            console.error('Share failed', err);
-            alert('分享失败，请尝试直接下载。');
-        }
-    }
   };
 
   const failedCount = getFailedPageNumbers().length;
@@ -598,7 +613,7 @@ function App() {
                                     disabled={isValidatingKey}
                                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg py-4 px-6 rounded-xl transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
                                 >
-                                    开始极速审阅
+                                    开始并行审阅
                                 </button>
                             </div>
                         )}
@@ -645,15 +660,8 @@ function App() {
                                         <Download className="w-5 h-5" />
                                         下载报告 (.html)
                                     </button>
-                                    <button 
-                                        onClick={() => shareReport(results, currentFile?.name || 'report', pageOffset)}
-                                        className="flex-1 group bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-lg py-4 px-6 rounded-xl transition-all flex items-center justify-center gap-3"
-                                    >
-                                        <Share2 className="w-5 h-5" />
-                                        分享报告文件
-                                    </button>
                                 </div>
-                                <p className="text-xs text-gray-400 mt-2 text-center">提示：下载或分享的文件包含完整结果，可在任何设备直接打开</p>
+                                <p className="text-xs text-gray-400 mt-2 text-center">提示：下载的文件包含完整结果，可在任何设备直接打开</p>
                             </div>
                         )}
 
@@ -712,10 +720,13 @@ function App() {
                     <div className="flex items-center justify-between mb-6">
                         <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900">
                             <History className="w-6 h-6 text-gray-500" />
-                            审阅历史归档
+                            审阅历史归档 (最近10条)
                         </h2>
                         <button 
-                            onClick={() => setHistory([])}
+                            onClick={() => {
+                                setHistory([]);
+                                if (typeof localStorage !== 'undefined') localStorage.removeItem('math_edit_history');
+                            }}
                             className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1"
                         >
                             <Trash2 className="w-3 h-3" /> 清空历史
@@ -736,14 +747,6 @@ function App() {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => shareReport(record.results, record.fileName, record.pageOffset)}
-                                        className="flex items-center gap-2 bg-white border border-gray-300 hover:border-blue-500 hover:text-blue-600 text-gray-700 px-4 py-2 rounded-lg transition-all text-sm font-medium shadow-sm"
-                                        title="分享报告文件"
-                                    >
-                                        <Share2 className="w-4 h-4" />
-                                        分享
-                                    </button>
                                     <button
                                         onClick={() => downloadReport(record.results, record.fileName, record.pageOffset)}
                                         className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-all text-sm font-medium shadow-sm"
