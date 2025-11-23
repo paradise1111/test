@@ -154,6 +154,14 @@ export const HTML_TEMPLATE_START = `<!DOCTYPE html>
         
         a { color: var(--accent-blue); text-decoration: none; }
         a:hover { text-decoration: underline; }
+        
+        .safety-check-section {
+            border: 2px solid #dc2626; 
+            background: #fef2f2; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>

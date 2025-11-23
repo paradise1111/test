@@ -1,7 +1,9 @@
 
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import FileUpload from './components/FileUpload';
 import ProgressBar from './components/ProgressBar';
+import ReportPreview from './components/ReportPreview';
 import { AppState, ProcessingStatus, ReportRecord } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf, extractTextFromPdf } from './services/pdfService';
 import { analyzePageContent } from './services/geminiService';
@@ -399,6 +401,13 @@ function App() {
                         </button>
                     )}
                 </div>
+
+                {/* LIVE PREVIEW AREA */}
+                {(results.length > 0) && (
+                    <div className="mt-12">
+                        <ReportPreview results={results} onDownload={() => downloadReport(results, currentFile?.name || 'report', pageOffset)} />
+                    </div>
+                )}
             </div>
         )}
       </main>
