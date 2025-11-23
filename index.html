@@ -1,76 +1,68 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>MathEdit AI</title>
+    <title>MathEdit AI Pro</title>
     
-    <!-- Mobile Web App Capable (Android/iOS) -->
+    <!-- Mobile Web App Capable -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#F5F5F7">
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PDF.js for processing PDF files in the browser -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
-    <!-- MathJax for rendering math formulas in the preview -->
     <script>
       window.MathJax = {
-        tex: {
-          inlineMath: [['$', '$'], ['\\(', '\\)']]
-        },
-        svg: {
-          fontCache: 'global'
-        }
+        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+        svg: { fontCache: 'global' }
       };
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <!-- Apple-style Font Stack & Utilities -->
     <style>
-      /* Custom scrollbar for the preview area */
-      .custom-scrollbar::-webkit-scrollbar {
-        width: 8px;
+      :root {
+        --apple-bg: #F5F5F7;
+        --apple-text: #1d1d1f;
+        --apple-blue: #0071e3;
+        --apple-gray: #86868b;
       }
-      .custom-scrollbar::-webkit-scrollbar-track {
-        background: #f1f1f1;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
-      
-      /* Prevent pull-to-refresh on mobile to feel more like an app */
+
       body {
+        background-color: var(--apple-bg);
+        color: var(--apple-text);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         overscroll-behavior-y: none;
       }
 
-      /* Progress Bar Animations */
-      @keyframes striping {
-        0% { background-position: 0 0; }
-        100% { background-position: 30px 0; }
-      }
-      
-      .progress-stripes {
-        background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
-        background-size: 30px 30px;
-        animation: striping 1s linear infinite;
+      /* Custom Apple-style Scrollbar */
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 10px; }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #aeaeb2; }
+
+      /* Apple-style Blur Card */
+      .apple-card {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
       }
 
-      @keyframes pulse-shadow {
-        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
-        70% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+      /* Animations */
+      @keyframes pulse-apple {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.8; }
       }
-      
-      .animate-pulse-shadow {
-        animation: pulse-shadow 2s infinite;
-      }
+      .animate-pulse-apple { animation: pulse-apple 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
     </style>
   <script type="importmap">
 {
@@ -88,7 +80,6 @@
 </head>
   <body>
     <div id="root"></div>
-    <!-- This script tag is CRITICAL for Vite to bundle the React code -->
     <script type="module" src="./index.tsx"></script>
   <script type="module" src="/index.tsx"></script>
 </body>
