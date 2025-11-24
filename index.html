@@ -3,14 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>MathEdit AI Pro</title>
+    <title>MathEdit Pro AI - 智能审稿系统</title>
     
-    <!-- Mobile Web App Capable -->
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="theme-color" content="#F5F5F7">
+    <!-- 引入字体: Noto Serif SC (中文主字体) & Poppins (英文副字体) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     
+    <!-- 引入 Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -21,66 +23,74 @@
         tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
         svg: { fontCache: 'global' }
       };
+      
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              serif: ['"Noto Serif SC"', 'serif'],
+              sans: ['"Poppins"', 'sans-serif'],
+            },
+            colors: {
+              ink: '#111111',     // 接近纯黑的墨色
+              paper: '#ffffff',   // 纯白纸张
+              subtle: '#f3f4f6',  // 浅灰用于区分区块
+              accent: '#000000',  // 强调色改为黑色，强调印刷感
+            }
+          }
+        }
+      }
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     
-    <!-- Apple-style Font Stack & Utilities -->
     <style>
       :root {
-        --apple-bg: #F5F5F7;
-        --apple-text: #1d1d1f;
-        --apple-blue: #0071e3;
-        --apple-gray: #86868b;
+        --bg-paper: #ffffff;
+        --text-ink: #111111;
       }
 
       body {
-        background-color: var(--apple-bg);
-        color: var(--apple-text);
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        background-color: var(--bg-paper);
+        color: var(--text-ink);
+        font-family: 'Noto Serif SC', serif; /* 默认使用衬线体营造印刷感 */
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        overscroll-behavior-y: none;
+        overflow-x: hidden;
       }
 
-      /* Custom Apple-style Scrollbar */
-      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-      .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 10px; }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #aeaeb2; }
-
-      /* Apple-style Blur Card */
-      .apple-card {
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(0, 0, 0, 0.05);
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+      /* 强制标题使用衬线体 */
+      h1, h2, h3, h4, .serif-title {
+        font-family: "Noto Serif SC", serif;
+      }
+      
+      /* 功能性文字、标签使用非衬线体 */
+      .sans-detail {
+        font-family: "Poppins", sans-serif;
       }
 
-      /* Animations */
-      @keyframes pulse-apple {
-        0%, 100% { transform: scale(1); opacity: 1; }
-        50% { transform: scale(1.05); opacity: 0.8; }
+      /* 视觉锚点：空心描边效果 */
+      .visual-anchor {
+        font-family: "Noto Serif SC", serif;
+        -webkit-text-stroke: 2px #e5e7eb; /* 浅灰色描边 */
+        color: transparent;
+        line-height: 0.8;
+        font-weight: 900;
+        user-select: none;
       }
-      .animate-pulse-apple { animation: pulse-apple 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+      /* 滚动条样式：极简黑白 */
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #fff; border-left: 1px solid #eee; }
+      ::-webkit-scrollbar-thumb { background: #000; }
+      ::-webkit-scrollbar-thumb:hover { background: #333; }
       
-      @keyframes scale-up {
-        0% { transform: scale(0.95); opacity: 0; }
-        100% { transform: scale(1); opacity: 1; }
+      /* 动画微调 */
+      .animate-fade-in {
+        animation: fadeIn 0.5s ease-out forwards;
       }
-      .animate-scale-up { animation: scale-up 0.3s ease-out forwards; }
-      
-      @keyframes fade-in-up {
-        0% { transform: translateY(20px); opacity: 0; }
-        100% { transform: translateY(0); opacity: 1; }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
       }
-      .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
-      
-      @keyframes fade-in {
-        0% { opacity: 0; }
-        100% { opacity: 1; }
-      }
-      .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
     </style>
   <script type="importmap">
 {
@@ -94,11 +104,9 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
-</body>
+  </body>
 </html>
