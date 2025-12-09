@@ -1,45 +1,122 @@
-import React, { useState, useRef, useEffect } from 'react';
+
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import FileUpload from './components/FileUpload';
 import ProgressBar from './components/ProgressBar';
 import ReportPreview from './components/ReportPreview';
-import { AppState, ProcessingStatus, ReportRecord } from './types';
-import { loadPdf, renderPageToImage, extractTextFromPdf } from './services/pdfService';
-import { analyzePageContent } from './services/geminiService';
+import RefineModal from './components/RefineModal';
+import LoginScreen from './components/LoginScreen';
+import { AppState, ProcessingStatus, ReportRecord, ApiSettings } from './types';
+import { loadPdf, renderPageToImage, createSubsetPdf, extractTextFromPdf } from './services/pdfService';
+import { analyzePageContent, extractLearningRule, saveApiSettings, getApiSettings, clearApiSettings } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
+import { BookOpen, FileCheck, AlertCircle, PauseCircle, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock, X, Library, Upload, Link, Sparkles, Calculator, Brain, Search, Zap, BrainCircuit, Rocket, Sigma, LogOut, Settings } from 'lucide-react';
 
-const HistoryRow: React.FC<{ 
+const HistoryItem: React.FC<{ 
     record: ReportRecord; 
     onDownload: (r: string[], n: string, o: number) => void; 
 }> = ({ record, onDownload }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
     const failedCount = record.totalProcessed - record.successCount;
-    const isSuccess = failedCount === 0;
-    
+    const hasErrors = failedCount > 0;
+
     return (
-        <div className="group flex items-center justify-between py-4 border-b border-gray-200 hover:bg-gray-50 transition-colors">
-            <div className="flex items-start gap-4">
-                <div className={`font-sans font-bold text-xs px-2 py-1 border ${isSuccess ? 'border-black text-black' : 'border-red-600 text-red-600'}`}>
-                    {isSuccess ? 'PASS' : 'WARN'}
-                </div>
-                <div>
-                    <div className="font-serif font-bold text-lg text-ink leading-tight">{record.fileName}</div>
-                    <div className="font-sans text-xs text-gray-500 uppercase mt-1">
-                        {new Date(record.timestamp).toLocaleString('zh-CN')}
+        <div className={`border rounded-xl transition-all duration-200 overflow-hidden ${
+            hasErrors 
+                ? 'bg-white border-red-200 shadow-sm hover:shadow-md' 
+                : 'bg-white border-gray-200 shadow-sm hover:shadow-md'
+        }`}>
+            <div 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className={`p-4 flex items-center justify-between cursor-pointer select-none ${
+                    hasErrors ? 'bg-red-50/30 hover:bg-red-50/60' : 'hover:bg-gray-50'
+                }`}
+            >
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <div className={`flex-shrink-0 p-2 rounded-full ${
+                        hasErrors ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
+                    }`}>
+                        {hasErrors ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                    </div>
+                    <div className="min-w-0">
+                        <div className={`font-bold truncate ${hasErrors ? 'text-red-900' : 'text-gray-900'}`}>
+                            {record.fileName}
+                        </div>
+                        <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                            <Clock className="w-3 h-3" />
+                            <span>{new Date(record.timestamp).toLocaleString()}</span>
+                        </div>
                     </div>
                 </div>
+
+                <div className="flex items-center gap-4">
+                    <div className="text-right hidden sm:block">
+                        {hasErrors ? (
+                             <div className="flex flex-col items-end">
+                                <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                                    {failedCount} 页异常
+                                </span>
+                                <span className="text-[10px] text-gray-400 mt-0.5">共 {record.totalProcessed} 页</span>
+                             </div>
+                        ) : (
+                            <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                                {record.totalProcessed} 页全部完成
+                            </span>
+                        )}
+                    </div>
+                    {isExpanded ? (
+                        <ChevronUp className="w-5 h-5 text-gray-400" />
+                    ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-400" />
+                    )}
+                </div>
             </div>
-            <button
-                onClick={() => onDownload(record.results, record.fileName, record.pageOffset)}
-                className="text-xs font-bold border border-black bg-white hover:bg-black hover:text-white text-ink px-4 py-2 transition-colors uppercase font-sans tracking-wide"
-            >
-                导出 <i className="fa-solid fa-arrow-down ml-1"></i>
-            </button>
+
+            {isExpanded && (
+                <div className="p-4 border-t border-gray-100 bg-gray-50/50 space-y-4 animate-fade-in">
+                    <div className="grid grid-cols-3 gap-2 text-center text-sm mb-2">
+                        <div className="bg-white p-2 rounded border border-gray-100">
+                            <div className="text-gray-400 text-xs uppercase">总页数</div>
+                            <div className="font-mono font-bold text-gray-700">{record.totalProcessed}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded border border-green-100">
+                            <div className="text-green-600 text-xs uppercase">成功</div>
+                            <div className="font-mono font-bold text-green-700">{record.successCount}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded border border-red-100">
+                            <div className="text-red-600 text-xs uppercase">失败</div>
+                            <div className="font-mono font-bold text-red-700">{failedCount}</div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-200/50">
+                        <div className="text-xs text-gray-400 font-mono">
+                            ID: {record.id.slice(-6)} | Offset: {record.pageOffset}
+                        </div>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDownload(record.results, record.fileName, record.pageOffset);
+                            }}
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
+                        >
+                            <Download className="w-4 h-4" />
+                            下载完整报告 HTML
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 function App() {
-  const [appState, setAppState] = useState<AppState>(AppState.IDLE);
-  const [status, setStatus] = useState<ProcessingStatus>({ total: 0, current: 0, isProcessing: false, currentStage: '' });
+  const [appState, setAppState] = useState<AppState>(AppState.LOGIN);
+  const [status, setStatus] = useState<ProcessingStatus>({
+    total: 0,
+    current: 0,
+    isProcessing: false,
+    currentStage: '',
+  });
   const [results, setResults] = useState<string[]>([]);
   const [activePageIndices, setActivePageIndices] = useState<number[]>([]);
   
@@ -49,30 +126,103 @@ function App() {
   const [history, setHistory] = useState<ReportRecord[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [enableSearch, setEnableSearch] = useState<boolean>(true);
+  const [enableSolutions, setEnableSolutions] = useState<boolean>(false);
+
   const [knowledgeBaseText, setKnowledgeBaseText] = useState<string>('');
   const [refFileName, setRefFileName] = useState<string | null>(null);
   const [isExtractingRef, setIsExtractingRef] = useState(false);
   const refFileInputRef = useRef<HTMLInputElement>(null);
-  
-  const stopProcessingRef = useRef<boolean>(false);
+
+  const [learnedRules, setLearnedRules] = useState<string[]>([]);
+  const [showRefineModal, setShowRefineModal] = useState(false);
+  const [refinePageIndex, setRefinePageIndex] = useState<number | null>(null);
+  const [isRefining, setIsRefining] = useState(false);
+
+  // Controller for aborting requests immediately
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    // Check for login status
+    const settings = getApiSettings();
+    if (settings) {
+        setAppState(AppState.IDLE);
+    } else {
+        setAppState(AppState.LOGIN);
+    }
+
     if (typeof localStorage !== 'undefined') {
-        const saved = localStorage.getItem('math_edit_history');
-        if (saved) setHistory(JSON.parse(saved));
+        try {
+            const savedHistory = localStorage.getItem('math_edit_history');
+            if (savedHistory) {
+                const parsed = JSON.parse(savedHistory);
+                if (Array.isArray(parsed)) setHistory(parsed);
+            }
+        } catch (e) { console.error(e); }
+
+        try {
+            const savedRules = localStorage.getItem('math_edit_learned_rules');
+            if (savedRules) {
+                const parsed = JSON.parse(savedRules);
+                if (Array.isArray(parsed)) setLearnedRules(parsed);
+            }
+        } catch (e) { console.error(e); }
+
+        try {
+            const savedSession = localStorage.getItem('math_edit_current_session');
+            if (savedSession) {
+                const session = JSON.parse(savedSession);
+                if (session.results && session.results.length > 0) {
+                    setResults(session.results);
+                    setStatus(session.status);
+                    setPageOffset(session.pageOffset || 1);
+                    if (settings) {
+                        setAppState(AppState.COMPLETED);
+                    }
+                }
+            }
+        } catch (e) { console.error("Failed to restore session", e); }
     }
   }, []);
 
   useEffect(() => {
-    if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('math_edit_history', JSON.stringify(history.slice(0, 20)));
-    }
-  }, [history]);
+      if (typeof localStorage !== 'undefined') {
+          if (history.length > 0) {
+              const safeHistory = history.slice(0, 10);
+              localStorage.setItem('math_edit_history', JSON.stringify(safeHistory));
+          }
+          localStorage.setItem('math_edit_learned_rules', JSON.stringify(learnedRules));
+          
+          if (results.length > 0) {
+             localStorage.setItem('math_edit_current_session', JSON.stringify({
+                 results,
+                 status,
+                 pageOffset,
+                 fileName: currentFile?.name || 'Restored Session'
+             }));
+          }
+      }
+  }, [history, learnedRules, results, status, pageOffset, currentFile]);
+  
+  const handleLogin = (settings: ApiSettings) => {
+      saveApiSettings(settings);
+      setAppState(AppState.IDLE);
+  };
 
-  const handleStop = () => {
-    stopProcessingRef.current = true;
-    setActivePageIndices([]);
-    setStatus(prev => ({ ...prev, isProcessing: false, currentStage: '操作已中断' }));
+  const handleSettings = () => {
+      // Go back to login screen but do NOT clear the settings
+      // Login screen will auto-load them from localStorage
+      setAppState(AppState.LOGIN);
+  };
+
+  const handleLogout = () => {
+      clearApiSettings();
+      setAppState(AppState.LOGIN);
+      // Clean up current session
+      setCurrentFile(null);
+      setResults([]);
+      localStorage.removeItem('math_edit_current_session');
   };
 
   const handleFileSelect = (file: File) => {
@@ -81,6 +231,13 @@ function App() {
     setResults([]);
     setActivePageIndices([]);
     setAppState(AppState.IDLE);
+    localStorage.removeItem('math_edit_current_session');
+  };
+
+  const handleFileError = (msg: string) => {
+    setErrorMsg(msg);
+    setCurrentFile(null);
+    setAppState(AppState.ERROR);
   };
 
   const handleRefFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,9 +247,9 @@ function App() {
           setIsExtractingRef(true);
           try {
               const text = await extractTextFromPdf(file);
-              setKnowledgeBaseText(prev => prev + `\n\n[参考资料: ${file.name}]\n` + text);
+              setKnowledgeBaseText(prev => prev + `\n\n--- 来自参考文件 ${file.name} ---\n` + text);
           } catch (err) {
-              alert("解析错误: " + (err as Error).message);
+              alert("无法读取参考文件: " + (err as Error).message);
               setRefFileName(null);
           } finally {
               setIsExtractingRef(false);
@@ -100,404 +257,776 @@ function App() {
       }
   };
 
-  const archiveCurrentSession = (resultsToArchive: string[]) => {
-    if (!currentFile || resultsToArchive.filter(r => r).length === 0) return;
+  const handleStop = () => {
+    // 1. Abort ongoing network requests immediately
+    if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+    }
+    // 2. Update UI status immediately
+    setStatus(prev => ({ 
+        ...prev, 
+        isProcessing: false, 
+        currentStage: '已手动停止 (Stopped)' 
+    }));
+    setActivePageIndices([]);
+  };
+
+  const resetApp = () => {
+      handleStop(); // Ensure things are stopped before reset
+      setAppState(AppState.IDLE);
+      setResults([]);
+      setActivePageIndices([]);
+      setCurrentFile(null);
+      setKnowledgeBaseText('');
+      setRefFileName(null);
+      setStatus({ total: 0, current: 0, isProcessing: false, currentStage: '' });
+      localStorage.removeItem('math_edit_current_session');
+  };
+
+  const getFailedPageNumbers = useCallback(() => {
+    return results
+      .map((html, index) => html && html.includes('error-card') ? index + 1 : -1)
+      .filter(p => p !== -1);
+  }, [results]);
+
+  const archiveCurrentSession = useCallback((resultsToArchive: string[]) => {
+    if (resultsToArchive.length === 0) return;
     const validPages = resultsToArchive.filter(r => r && !r.includes('error-card')).length;
+    if (resultsToArchive.filter(r => r).length === 0) return;
+
     const record: ReportRecord = {
         id: Date.now().toString(),
-        fileName: currentFile.name,
+        fileName: currentFile?.name || 'Unnamed Session',
         timestamp: Date.now(),
         totalProcessed: resultsToArchive.filter(r => r).length,
         successCount: validPages,
         results: [...resultsToArchive],
         pageOffset: pageOffset
     };
-    setHistory(prev => [record, ...prev]);
+
+    setHistory(prev => {
+        if (prev.length > 0 && prev[0].id === record.id) return prev;
+        return [record, ...prev];
+    });
+  }, [currentFile, pageOffset]);
+
+  const openRefineModal = (index: number) => {
+      setRefinePageIndex(index);
+      setShowRefineModal(true);
+  };
+
+  const handleRefineSubmit = async (feedback: string, correctedText: string, addToMemory: boolean) => {
+      if (refinePageIndex === null) return;
+      
+      setIsRefining(true);
+      const pageNum = refinePageIndex + 1;
+      const realPageNum = pageNum + (pageOffset - 1);
+      const previousHtml = results[refinePageIndex];
+      
+      try {
+          if (correctedText) {
+              if (addToMemory) {
+                  const newRule = await extractLearningRule(previousHtml, correctedText);
+                  setLearnedRules(prev => [...prev, newRule]);
+              }
+
+              const userHtmlWrapper = `
+                <div class="page-review" id="page-${realPageNum}">
+                    <div class="page-header">
+                        <h2 class="page-title">PAGE ${realPageNum} · 人工修订版</h2>
+                    </div>
+                    <div class="audit-panel" style="display:none"></div>
+                    <div class="revision-document">
+                        <h3 class="panel-title">✍️ 人工修订定稿</h3>
+                        <div class="document-content">
+                            ${correctedText}
+                        </div>
+                    </div>
+                </div>
+              `;
+              
+              setResults(prev => {
+                  const next = [...prev];
+                  next[refinePageIndex] = userHtmlWrapper;
+                  return next;
+              });
+
+          } else {
+              if (addToMemory) {
+                  setLearnedRules(prev => [...prev, feedback]);
+              }
+              const currentRules = addToMemory ? [...learnedRules, feedback] : learnedRules;
+              
+              if (!currentFile) throw new Error("PDF source missing.");
+              
+              const pdf = await loadPdf(currentFile);
+              const imgData = await renderPageToImage(pdf, pageNum);
+
+              const newHtml = await analyzePageContent(
+                  imgData, 
+                  realPageNum, 
+                  knowledgeBaseText, 
+                  selectedModel, 
+                  enableSearch, 
+                  enableSolutions,
+                  currentRules, 
+                  { previousHtml, feedback }
+              );
+
+              setResults(prev => {
+                  const next = [...prev];
+                  next[refinePageIndex] = newHtml;
+                  return next;
+              });
+          }
+          
+          setShowRefineModal(false);
+          setRefinePageIndex(null);
+      } catch (err) {
+          alert("优化失败: " + (err as Error).message);
+      } finally {
+          setIsRefining(false);
+      }
   };
 
   const executeReview = async (pagesToProcess: number[], preserveResults: boolean) => {
     if (!currentFile) return;
     
     setAppState(AppState.PROCESSING);
-    stopProcessingRef.current = false;
+    setActivePageIndices([]);
     
+    // Create a new AbortController for this run
+    abortControllerRef.current = new AbortController();
+    const { signal } = abortControllerRef.current;
+
     try {
       const pdf = await loadPdf(currentFile);
       const totalPages = pdf.numPages;
-      let finalResults = preserveResults ? [...results] : new Array(totalPages).fill('');
-      let completedCount = preserveResults ? totalPages - pagesToProcess.length : 0;
+      
+      let finalResults: string[];
+      let completedCount = 0;
 
-      setStatus({ total: totalPages, current: completedCount, isProcessing: true, currentStage: '初始化推理引擎...' });
+      if (preserveResults) {
+        finalResults = [...results];
+        completedCount = totalPages - pagesToProcess.length;
+      } else {
+        finalResults = new Array(totalPages).fill('');
+        completedCount = 0;
+      }
 
-      const queue = [...pagesToProcess];
-      const CONCURRENCY = 5;
+      setStatus({
+        total: totalPages,
+        current: completedCount,
+        isProcessing: true,
+        currentStage: '启动智能审阅引擎 (Turbo Mode)...',
+      });
 
-      const worker = async () => {
+      const CONCURRENCY_LIMIT = selectedModel.includes('lite') ? 5 : (selectedModel.includes('flash') ? 4 : 2);
+      
+      const queue = [...pagesToProcess]; 
+      
+      const worker = async (workerId: number) => {
         while (queue.length > 0) {
-            if (stopProcessingRef.current) break;
-            const pageNum = queue.shift();
+            // Immediate abort check inside the loop
+            if (signal.aborted) break;
+
+            const pageNum = queue.shift(); 
             if (!pageNum) break;
 
             setActivePageIndices(prev => [...prev, pageNum]);
 
             try {
-                if (stopProcessingRef.current) break;
+                if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                
                 const imgData = await renderPageToImage(pdf, pageNum);
+                const realPageNum = pageNum + (pageOffset - 1);
+                
+                if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-                if (stopProcessingRef.current) break;
-                const html = await analyzePageContent(imgData, pageNum + pageOffset - 1, knowledgeBaseText);
+                const html = await analyzePageContent(
+                    imgData, 
+                    realPageNum, 
+                    knowledgeBaseText, 
+                    selectedModel, 
+                    enableSearch, 
+                    enableSolutions,
+                    learnedRules,
+                    undefined,
+                    signal // Pass the signal to the service
+                );
 
-                if (stopProcessingRef.current) break;
+                if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
                 finalResults[pageNum - 1] = html;
-                setResults([...finalResults]);
-            } catch (err) {
-                console.error(err);
-                if (!stopProcessingRef.current) {
-                     finalResults[pageNum - 1] = `<div class="page-review error-card" id="page-${pageNum}"><h2 class="page-title">第 ${pageNum} 页处理失败</h2></div>`;
-                     setResults([...finalResults]);
+                setResults([...finalResults]); 
+
+            } catch (err: any) {
+                // If stopped manually, do not record as error, just exit
+                if (err.name === 'AbortError' || signal.aborted) {
+                    break; 
                 }
+
+                console.error(`Error on page ${pageNum}`, err);
+                const realPageNum = pageNum + (pageOffset - 1);
+                const errorHtml = `
+                    <div class="page-review error-card" id="page-${realPageNum}">
+                        <div class="page-header">
+                            <h2 class="page-title">PAGE ${realPageNum} // ERROR REPORT</h2>
+                        </div>
+                        <div class="review-section">
+                             <div class="suggestion-item">
+                                <span class="tag tag-error">处理失败</span>
+                                <span>${err.message || "未知错误"}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                finalResults[pageNum - 1] = errorHtml;
+                setResults([...finalResults]);
             } finally {
-                setActivePageIndices(prev => prev.filter(p => p !== pageNum));
-                if (!stopProcessingRef.current) {
+                // Only increment status if NOT aborted (or if completed before abort)
+                if (!signal.aborted) {
                     completedCount++;
                     setStatus(prev => ({ ...prev, current: completedCount }));
                 }
+                setActivePageIndices(prev => prev.filter(p => p !== pageNum));
             }
         }
       };
 
-      await Promise.all(Array(CONCURRENCY).fill(null).map(() => worker()));
+      const activeWorkersCount = Math.min(pagesToProcess.length, CONCURRENCY_LIMIT);
+      const workers = Array(activeWorkersCount).fill(null).map((_, i) => worker(i + 1));
 
-      if (stopProcessingRef.current) {
-          setAppState(AppState.PROCESSING);
-          setStatus(prev => ({ ...prev, isProcessing: false, currentStage: '用户已手动终止' }));
+      await Promise.all(workers);
+
+      if (!signal.aborted) {
+        setStatus(prev => ({ ...prev, currentStage: '全书处理完成' }));
+        setAppState(AppState.COMPLETED);
+        archiveCurrentSession(finalResults);
       } else {
-          setStatus(prev => ({ ...prev, currentStage: '所有页面处理完毕' }));
-          setAppState(AppState.COMPLETED);
+         // UI already handled in handleStop, but ensure state is correct
+         setAppState(AppState.PROCESSING); // Stays in processing view so user can resume or see what's done
       }
-      
-      archiveCurrentSession(finalResults);
 
-    } catch (err) {
-      setErrorMsg((err as Error).message);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.error(err);
+      setErrorMsg((err as Error).message || "发生了意外错误。");
       setAppState(AppState.ERROR);
     } finally {
-      if (stopProcessingRef.current) {
-          setActivePageIndices([]);
-      }
+      setStatus(prev => ({ ...prev, isProcessing: false }));
+      setActivePageIndices([]);
+      abortControllerRef.current = null;
     }
   };
 
   const startProcessing = async () => {
     if (!currentFile) return;
+
     try {
-        const pdf = await loadPdf(currentFile);
-        const allPages = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
+        const pdf = await loadPdf(currentFile); 
+        const totalPages = pdf.numPages;
+        const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
         await executeReview(allPages, false);
-    } catch (e) {
-        setErrorMsg("PDF 加载失败: " + (e as Error).message);
+    } catch (error) {
+        console.error("Processing start error:", error);
+        setErrorMsg("启动失败：可能是 PDF 组件未能从网络加载，请检查网络连接。" + (error as Error).message);
         setAppState(AppState.ERROR);
     }
   };
 
-  const downloadReport = (res: string[], name: string, offset: number) => {
-      const content = res.filter(r => r).join('\n');
-      if (!content) return;
-      const html = HTML_TEMPLATE_START + content + HTML_TEMPLATE_END;
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${name.replace('.pdf', '')}_审阅报告.html`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+  const handleRetryFailed = async () => {
+    const failedPages = getFailedPageNumbers();
+    if (failedPages.length === 0) return;
+    await executeReview(failedPages, true);
   };
 
+  const exportFailedPages = async () => {
+    if (!currentFile) return;
+    const failedPages = getFailedPageNumbers();
+    if (failedPages.length === 0) return;
+
+    try {
+        setStatus(prev => ({ ...prev, currentStage: '正在生成补漏文件...' }));
+        const newPdfBytes = await createSubsetPdf(currentFile, failedPages);
+        const blob = new Blob([newPdfBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const namePart = currentFile.name.replace('.pdf', '');
+        a.download = `${namePart}_待补漏_${failedPages.length}页.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setStatus(prev => ({ ...prev, currentStage: '补漏文件已导出。' }));
+    } catch (e) {
+        alert(`导出失败: ${(e as Error).message}`);
+    }
+  };
+
+  const generateFullHtml = (recordResults: string[], fileName: string, offset: number) => {
+    if (!recordResults || recordResults.length === 0) return '';
+    let navLinks = '';
+    recordResults.forEach((html, index) => {
+        if (!html) return;
+        const realPage = index + offset;
+        const isError = html.includes('error-card');
+        const styleClass = isError ? 'nav-link error' : 'nav-link';
+        navLinks += `<a href="#page-${realPage}" class="${styleClass}">PAGE ${realPage}${isError ? ' / ERROR' : ''}</a>`;
+    });
+    
+    const templateWithNav = HTML_TEMPLATE_START.replace('<!--NAV_LINKS_PLACEHOLDER-->', navLinks);
+    return templateWithNav + recordResults.join('\n') + HTML_TEMPLATE_END;
+  };
+
+  const downloadReport = (recordResults: string[], fileName: string, offset: number) => {
+    const fullHtml = generateFullHtml(recordResults, fileName, offset);
+    if (!fullHtml) return;
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace('.pdf', '')}_数学审稿报告.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const failedCount = getFailedPageNumbers().length;
+
+  if (appState === AppState.LOGIN) {
+      return <LoginScreen onLogin={handleLogin} />;
+  }
+
   return (
-    <div className="min-h-screen bg-white text-ink font-serif selection:bg-black selection:text-white">
-      
-      {/* 1. Header (Masthead) */}
-      <header className="border-b-[3px] border-black pt-12 pb-6 px-6 md:px-12 bg-white sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row justify-between md:items-end gap-4">
-          <div>
-            <div className="text-[10px] font-sans font-bold uppercase tracking-[0.2em] text-gray-500 mb-2">
-              Automated Publication Audit System
+    <div className="min-h-screen font-sans bg-gradient-to-br from-indigo-50 via-white to-blue-50 text-slate-900 pb-20">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-sm transition-all">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-2 rounded-lg shadow-lg shadow-blue-200">
+                <BookOpen className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none">
-              MathEdit Pro <span className="text-3xl font-light italic">AI</span>
-            </h1>
+            <div>
+                <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-700 to-indigo-700 tracking-tight">MathEdit AI</h1>
+            </div>
           </div>
-          <div className="flex flex-col md:items-end gap-2">
-             <div className="flex gap-4 text-xs font-sans font-bold tracking-wider">
-                <span>V2.1.0 BUILD</span>
-                <span>/</span>
-                <span>GEMINI 3 PRO</span>
-             </div>
-             <button 
+          <div className="flex items-center gap-3">
+            <button 
                 onClick={() => setShowHistoryModal(true)}
-                className="group flex items-center gap-2 text-sm font-bold border-b border-transparent hover:border-black transition-all pb-0.5"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-full transition-all border border-transparent hover:border-blue-100"
             >
-                <i className="fa-solid fa-list-ul text-xs"></i> 查看历史记录
+                <History className="w-4 h-4" />
+                <span className="hidden sm:inline">历史归档</span>
             </button>
+            <div className="h-6 w-px bg-slate-200 mx-1"></div>
+            <button 
+                onClick={handleSettings}
+                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
+                title="设置 API Key"
+            >
+                <Settings className="w-5 h-5" />
+            </button>
+            <button 
+                onClick={handleLogout}
+                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-all"
+                title="退出并清除配置"
+            >
+                <LogOut className="w-5 h-5" />
+            </button>
+            {appState !== AppState.IDLE && appState !== AppState.ERROR && (
+                <button 
+                    onClick={resetApp} 
+                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all ml-2 border-l border-slate-100"
+                    title="返回首页"
+                >
+                    <ChevronLeft className="w-5 h-5" />
+                </button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* 2. Main Body (4+8 Grid) */}
-      <main className="max-w-[1400px] mx-auto px-6 md:px-12 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 lg:gap-16">
-            
-            {/* 4 Cols: Visual Anchor & Sidebar */}
-            <aside className="md:col-span-4 relative hidden md:block">
-                <div className="sticky top-48">
-                    {/* The Giant Hollow Anchor */}
-                    <div className="visual-anchor text-[12rem] lg:text-[16rem] leading-[0.7] -ml-2 mb-8 opacity-20">
-                        审
-                    </div>
-                    
-                    <div className="space-y-12 border-l-2 border-black pl-8">
-                        <div>
-                            <h3 className="font-bold text-2xl mb-4">核心准则</h3>
-                            <p className="text-sm font-serif leading-relaxed text-gray-800">
-                                严格遵循《义务教育数学课程标准（2022年版）》及 GB 3102.11 符号规范。任何格式、术语或逻辑偏差都将被标记。
-                            </p>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
+            {(appState === AppState.IDLE || appState === AppState.ERROR) && (
+                <div className="space-y-12 animate-fade-in">
+                    <div className="text-center space-y-6 py-8">
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold mb-2">
+                             <Sparkles className="w-4 h-4" /> 
+                             Gemini 3 Pro / 2.5 Flash / Flash Lite
                         </div>
-                        
-                        <div>
-                            <h3 className="font-bold text-2xl mb-4">审阅范围</h3>
-                            <ul className="text-sm font-serif space-y-3">
-                                <li className="flex items-center gap-3">
-                                    <i className="fa-solid fa-check text-xs"></i> 政治敏感性与地图边界
-                                </li>
-                                <li className="flex items-center gap-3">
-                                    <i className="fa-solid fa-check text-xs"></i> 数学逻辑与计算校验
-                                </li>
-                                <li className="flex items-center gap-3">
-                                    <i className="fa-solid fa-check text-xs"></i> 术语规范化检查
-                                </li>
-                            </ul>
-                        </div>
+                        <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
+                            重新定义 <span className="text-blue-600">数学出版</span> 审阅流程
+                        </h2>
+                        <p className="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed">
+                            全自动校验术语规范、排版逻辑，并执行<span className="text-slate-800 font-semibold underline decoration-blue-300 decoration-2 underline-offset-4">深度数学验算</span>。支持<strong>历史记忆学习</strong>与交互式优化。
+                        </p>
                     </div>
-                </div>
-            </aside>
 
-            {/* 8 Cols: Core Interaction Area */}
-            <section className="md:col-span-12 lg:col-span-8 space-y-12">
-                
-                {/* Initial State */}
-                {(appState === AppState.IDLE || appState === AppState.ERROR) && (
-                    <div className="animate-fade-in space-y-12">
-                        {/* File Upload Block */}
-                        <div className="bg-white">
-                            {!currentFile ? (
-                                <FileUpload onFileSelect={handleFileSelect} onError={(m) => setErrorMsg(m)} />
-                            ) : (
-                                <div className="border-2 border-dashed border-black p-8 flex items-center justify-between bg-gray-50">
-                                    <div className="flex items-center gap-6">
-                                        <div className="w-16 h-16 bg-black text-white flex items-center justify-center text-2xl">
-                                            <i className="fa-regular fa-file-pdf"></i>
-                                        </div>
-                                        <div>
-                                            <h3 className="text-xl font-bold mb-1">{currentFile.name}</h3>
-                                            <p className="font-sans text-xs text-gray-500 uppercase tracking-wider">
-                                                FILE SIZE: {(currentFile.size/1024/1024).toFixed(2)} MB
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <button 
-                                        onClick={() => setCurrentFile(null)} 
-                                        className="w-10 h-10 flex items-center justify-center border border-transparent hover:border-black hover:bg-white transition-all"
-                                    >
-                                        <i className="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
-                            )}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+                        <div className="bg-white/60 backdrop-blur border border-white/50 p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 mb-4">
+                                <Calculator className="w-5 h-5" />
+                            </div>
+                            <h3 className="font-bold text-slate-800 mb-2">智能数学验算</h3>
+                            <p className="text-sm text-slate-500">自动提取题目中的算式进行后台计算，发现答案错误或逻辑矛盾。</p>
+                        </div>
+                        <div className="bg-white/60 backdrop-blur border border-white/50 p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 mb-4">
+                                <Brain className="w-5 h-5" />
+                            </div>
+                            <h3 className="font-bold text-slate-800 mb-2">历史记忆学习</h3>
+                            <p className="text-sm text-slate-500">系统会自动记住您的偏好（如“不要修改xx”），在后续审阅中自动生效。</p>
+                        </div>
+                        <div className="bg-white/60 backdrop-blur border border-white/50 p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                            <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 mb-4">
+                                <Search className="w-5 h-5" />
+                            </div>
+                            <h3 className="font-bold text-slate-800 mb-2">实时搜索溯源</h3>
+                            <p className="text-sm text-slate-500">联网检索最新的定义和数据，并在报告中提供权威来源链接。</p>
+                        </div>
+                    </div>
+
+                    <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl shadow-indigo-100/50 border border-slate-100 overflow-hidden">
+                        <div className="p-1">
+                            <FileUpload 
+                                onFileSelect={handleFileSelect} 
+                                onError={handleFileError}
+                                disabled={false}
+                            />
                         </div>
 
                         {currentFile && (
-                            <div className="space-y-6">
-                                <div className="flex items-baseline justify-between border-b border-black pb-2">
-                                    <h2 className="text-2xl font-bold">语境注入 <span className="font-sans text-sm font-normal text-gray-500 ml-2">CONTEXT INJECTION</span></h2>
+                            <div className="p-8 bg-slate-50/50 border-t border-slate-100 space-y-8 animate-slide-up">
+                                <div className="flex items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                    <div className="bg-blue-600 p-3 rounded-lg">
+                                        <FileCheck className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-bold text-slate-900 truncate text-lg">{currentFile.name}</div>
+                                        <div className="text-sm text-slate-500">{(currentFile.size / 1024 / 1024).toFixed(1)} MB · 准备就绪</div>
+                                    </div>
+                                    <button onClick={() => setCurrentFile(null)} className="text-slate-400 hover:text-red-500 p-2">
+                                        <Trash2 className="w-5 h-5" />
+                                    </button>
                                 </div>
                                 
-                                <div className="relative">
-                                    <textarea 
-                                        value={knowledgeBaseText}
-                                        onChange={(e) => setKnowledgeBaseText(e.target.value)}
-                                        placeholder="在此输入特定的审阅规则、排版要求或需要回避的词汇..."
-                                        className="w-full h-48 p-6 font-serif text-lg leading-relaxed border-2 border-gray-200 focus:border-black outline-none resize-none placeholder-gray-300 transition-colors bg-white"
-                                    />
-                                    <div className="absolute bottom-4 right-4">
-                                        <input type="file" ref={refFileInputRef} accept="application/pdf" className="hidden" onChange={handleRefFileSelect} />
-                                        <button 
-                                            onClick={() => refFileInputRef.current?.click()}
-                                            className="bg-black text-white text-xs font-sans font-bold px-4 py-2 hover:bg-gray-800 transition-colors flex items-center gap-2"
-                                            disabled={isExtractingRef}
-                                        >
-                                            {isExtractingRef ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-upload"></i>}
-                                            {refFileName ? '已加载参考PDF' : '上传参考标准 PDF'}
-                                        </button>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="flex flex-col p-4 bg-white rounded-xl border border-slate-200">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="font-bold text-slate-700">起始页码</div>
+                                            <input 
+                                                type="number" 
+                                                min="1"
+                                                value={pageOffset}
+                                                onChange={(e) => setPageOffset(Math.max(1, parseInt(e.target.value) || 1))}
+                                                className="w-20 px-2 py-1 text-right text-lg font-mono font-bold border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="text-xs text-slate-500">PDF P1 = 实际页码 {pageOffset}</div>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 col-span-1 md:col-span-2">
+                                        <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                                            <div className="font-bold text-slate-700">AI 模型与能力配置</div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                            <button 
+                                                onClick={() => setEnableSearch(!enableSearch)}
+                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${enableSearch ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200'}`}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`p-1.5 rounded-md ${enableSearch ? 'bg-emerald-200 text-emerald-800' : 'bg-gray-200 text-gray-500'}`}>
+                                                        <Search className="w-4 h-4" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className={`text-xs font-bold ${enableSearch ? 'text-emerald-900' : 'text-gray-500'}`}>搜索溯源</div>
+                                                        <div className="text-[10px] text-gray-500">联网验证数据</div>
+                                                    </div>
+                                                </div>
+                                                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${enableSearch ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${enableSearch ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                                </div>
+                                            </button>
+
+                                            <button 
+                                                onClick={() => setEnableSolutions(!enableSolutions)}
+                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${enableSolutions ? 'bg-blue-50 border-blue-300' : 'bg-gray-50 border-gray-200'}`}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`p-1.5 rounded-md ${enableSolutions ? 'bg-blue-200 text-blue-800' : 'bg-gray-200 text-gray-500'}`}>
+                                                        <Sigma className="w-4 h-4" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className={`text-xs font-bold ${enableSolutions ? 'text-blue-900' : 'text-gray-500'}`}>智能解答模式</div>
+                                                        <div className="text-[10px] text-gray-500">生成分步解析</div>
+                                                    </div>
+                                                </div>
+                                                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${enableSolutions ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${enableSolutions ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button
+                                                onClick={() => setSelectedModel('gemini-3-pro-preview')}
+                                                className={`p-2 rounded-lg border text-left transition-all ${selectedModel === 'gemini-3-pro-preview' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'hover:bg-slate-50 border-slate-200'}`}
+                                            >
+                                                <div className="font-bold text-xs text-blue-900 flex items-center gap-1">
+                                                    <BrainCircuit className="w-3 h-3"/> Pro
+                                                </div>
+                                                <div className="text-[9px] text-slate-500 mt-1">高精 · 慢</div>
+                                            </button>
+                                            <button
+                                                onClick={() => setSelectedModel('gemini-2.5-flash')}
+                                                className={`p-2 rounded-lg border text-left transition-all ${selectedModel === 'gemini-2.5-flash' ? 'bg-amber-50 border-amber-500 ring-1 ring-amber-500' : 'hover:bg-slate-50 border-slate-200'}`}
+                                            >
+                                                <div className="font-bold text-xs text-amber-900 flex items-center gap-1">
+                                                    <Zap className="w-3 h-3"/> Flash
+                                                </div>
+                                                <div className="text-[9px] text-slate-500 mt-1">均衡 · 快</div>
+                                            </button>
+                                             <button
+                                                onClick={() => setSelectedModel('gemini-2.5-flash-lite')}
+                                                className={`p-2 rounded-lg border text-left transition-all ${selectedModel === 'gemini-2.5-flash-lite' ? 'bg-purple-50 border-purple-500 ring-1 ring-purple-500' : 'hover:bg-slate-50 border-slate-200'}`}
+                                            >
+                                                <div className="font-bold text-xs text-purple-900 flex items-center gap-1">
+                                                    <Rocket className="w-3 h-3"/> Lite
+                                                </div>
+                                                <div className="text-[9px] text-slate-500 mt-1">低延迟</div>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white border border-pink-100 rounded-xl p-6 shadow-sm relative overflow-hidden group">
+                                     <h3 className="text-md font-bold text-pink-900 mb-4 flex items-center gap-2">
+                                        <Brain className="w-5 h-5 text-pink-600" />
+                                        AI 进化记忆 (Learned Rules)
+                                    </h3>
+                                    {learnedRules.length > 0 ? (
+                                        <ul className="space-y-2 mb-4">
+                                            {learnedRules.map((rule, idx) => (
+                                                <li key={idx} className="flex items-start gap-2 text-sm text-pink-800 bg-pink-50 p-2 rounded border border-pink-100">
+                                                    <span className="bg-pink-200 text-pink-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full mt-0.5">{idx + 1}</span>
+                                                    <span className="flex-1">{rule}</span>
+                                                    <button 
+                                                        onClick={() => setLearnedRules(prev => prev.filter((_, i) => i !== idx))}
+                                                        className="text-pink-400 hover:text-pink-600"
+                                                    >
+                                                        <X className="w-4 h-4"/>
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-sm text-slate-400 italic mb-2">暂无已学习的偏好规则。在审阅结果中点击“优化”并勾选“记在记忆中”可添加规则。</p>
+                                    )}
+                                </div>
+                                
+                                <div className="bg-white border border-indigo-100 rounded-xl p-6 shadow-sm relative overflow-hidden group">
+                                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                        <Library className="w-24 h-24 text-indigo-600" />
+                                    </div>
+                                    <h3 className="text-md font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                                        <Library className="w-5 h-5 text-indigo-600" />
+                                        自定义审稿标准 (Knowledge Base)
+                                    </h3>
+                                    
+                                    <div className="space-y-4 relative z-10">
+                                        <div className="flex flex-wrap gap-3">
+                                            <input 
+                                                type="file" 
+                                                ref={refFileInputRef}
+                                                accept="application/pdf"
+                                                onChange={handleRefFileSelect}
+                                                className="hidden"
+                                            />
+                                            <button 
+                                                onClick={() => refFileInputRef.current?.click()}
+                                                disabled={isExtractingRef}
+                                                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-bold transition-colors"
+                                            >
+                                                {isExtractingRef ? <RotateCw className="w-4 h-4 animate-spin"/> : <Upload className="w-4 h-4" />}
+                                                {refFileName ? '更换参考 PDF' : '上传标准 PDF'}
+                                            </button>
+                                            {refFileName && (
+                                                <span className="flex items-center gap-2 text-sm text-indigo-800 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                                                    <FileCheck className="w-3 h-3"/> 已加载: {refFileName}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="relative">
+                                            <Link className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                                            <textarea
+                                                value={knowledgeBaseText}
+                                                onChange={(e) => setKnowledgeBaseText(e.target.value)}
+                                                placeholder="粘贴具体的排版规则、链接或术语定义 (AI 将优先遵循此处内容)..."
+                                                className="w-full pl-10 pr-4 py-3 text-sm border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[100px] transition-all"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
                                 <button 
                                     onClick={startProcessing}
-                                    className="w-full bg-black text-white h-20 text-xl font-bold hover:bg-gray-900 transition-colors flex items-center justify-between px-8 group mt-8"
+                                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-lg py-4 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99]"
                                 >
-                                    <span>启动全量审阅</span>
-                                    <i className="fa-solid fa-arrow-right transform group-hover:translate-x-2 transition-transform"></i>
+                                    {selectedModel.includes('flash') ? '⚡ 启动极速并行审阅 (会员版)' : '🧠 启动深度精准审阅 (会员版)'}
                                 </button>
                             </div>
                         )}
 
-                        {errorMsg && (
-                            <div className="border-l-4 border-black bg-gray-100 p-6">
-                                <h4 className="font-bold text-lg mb-2 flex items-center gap-2">
-                                    <i className="fa-solid fa-triangle-exclamation"></i> 错误报告
-                                </h4>
-                                <p className="font-serif text-sm">{errorMsg}</p>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Processing State */}
-                {(appState === AppState.PROCESSING || appState === AppState.COMPLETED) && (
-                    <div className="animate-fade-in space-y-12">
-                        <ProgressBar 
-                            current={status.current} 
-                            total={status.total} 
-                            status={status.currentStage} 
-                            results={results}
-                            pageOffset={pageOffset}
-                            activePageIndices={activePageIndices}
-                        />
-
-                         {appState === AppState.PROCESSING && !stopProcessingRef.current && (
-                            <div className="text-center border-y border-gray-200 py-6">
-                                <button 
-                                    onClick={handleStop}
-                                    className="text-black font-bold text-sm uppercase hover:underline decoration-2 underline-offset-4"
-                                >
-                                    <i className="fa-solid fa-pause mr-2"></i> 暂停并终止进程
-                                </button>
-                            </div>
-                        )}
-
-                        {results.length > 0 && (
-                            <div>
-                                <div className="flex justify-between items-end mb-8 border-b-2 border-black pb-4">
-                                    <h2 className="text-3xl font-black">审阅报告</h2>
-                                    {(appState === AppState.COMPLETED || stopProcessingRef.current) && (
-                                        <button 
-                                            onClick={() => downloadReport(results, currentFile?.name || 'report', pageOffset)}
-                                            className="bg-black text-white px-6 py-3 font-sans font-bold text-xs uppercase hover:bg-gray-800 transition-colors"
-                                        >
-                                            下载 HTML 报告
-                                        </button>
-                                    )}
+                        {appState === AppState.ERROR && errorMsg && (
+                            <div className="p-6 bg-red-50 border-t border-red-100">
+                                <div className="flex items-start gap-3 text-red-700">
+                                    <AlertCircle className="w-6 h-6 flex-shrink-0" />
+                                    <div>
+                                        <h4 className="font-bold text-lg">无法继续</h4>
+                                        <p className="text-sm mt-1 opacity-90">{errorMsg}</p>
+                                    </div>
                                 </div>
-                                <ReportPreview results={results} onDownload={() => downloadReport(results, currentFile?.name || 'report', pageOffset)} />
                             </div>
                         )}
                     </div>
-                )}
+                </div>
+            )}
 
-            </section>
-        </div>
+            {(appState === AppState.PROCESSING || appState === AppState.COMPLETED) && (
+                <div className="max-w-4xl mx-auto animate-fade-in-up space-y-8">
+                     <ProgressBar 
+                        current={status.current} 
+                        total={status.total} 
+                        status={status.currentStage} 
+                        results={results}
+                        pageOffset={pageOffset}
+                        activePageIndices={activePageIndices}
+                    />
+                    
+                    <ReportPreview 
+                        results={results} 
+                        onDownload={() => downloadReport(results, currentFile?.name || 'report', pageOffset)}
+                        onRefine={openRefineModal}
+                        pageOffset={pageOffset}
+                    />
+
+                    <div className="grid grid-cols-1 gap-6">
+                        {failedCount > 0 && (
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-bold flex items-center gap-2 text-red-800">
+                                        <AlertCircle className="w-5 h-5 text-red-600" />
+                                        异常处理专区
+                                    </h3>
+                                    <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">
+                                        {failedCount} 页失败
+                                    </span>
+                                </div>
+                                
+                                <p className="text-sm text-slate-600 mb-6 bg-red-50 p-3 rounded-lg border border-red-100">
+                                    部分页面因网络原因处理超时。您可以单独导出这些页面，或尝试原地重试。
+                                </p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <button 
+                                        onClick={exportFailedPages}
+                                        className="flex items-center justify-center gap-2 bg-white border-2 border-blue-100 text-blue-700 hover:border-blue-200 hover:bg-blue-50 font-bold py-3 px-4 rounded-xl transition-all"
+                                    >
+                                        <FileOutput className="w-5 h-5" />
+                                        导出失败页 PDF
+                                    </button>
+                                    <button 
+                                        onClick={handleRetryFailed}
+                                        className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md"
+                                    >
+                                        <RotateCw className="w-5 h-5" />
+                                        尝试原位重试
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {appState === AppState.PROCESSING && (
+                            <button 
+                                onClick={handleStop}
+                                className="w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                            >
+                                <PauseCircle className="w-5 h-5" />
+                                停止并保存当前进度
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
       </main>
 
-      {/* 3. Mid-Breaker */}
-      <section className="bg-gray-100 py-20 border-t border-b border-black">
-          <div className="max-w-[1400px] mx-auto px-6 md:px-12">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                <div className="space-y-4">
-                    <div className="w-12 h-12 border-2 border-black rounded-none flex items-center justify-center text-xl">
-                        <i className="fa-solid fa-globe"></i>
-                    </div>
-                    <h4 className="font-bold text-xl">政治与主权合规</h4>
-                    <p className="text-sm text-gray-600 leading-relaxed font-serif">
-                        内置高敏感度政治审查过滤器。对地图边界、主权表述及涉政用语进行强制性扫描，确保出版物符合国家法规。
-                    </p>
-                </div>
-                <div className="space-y-4">
-                    <div className="w-12 h-12 border-2 border-black rounded-none flex items-center justify-center text-xl">
-                        <i className="fa-solid fa-calculator"></i>
-                    </div>
-                    <h4 className="font-bold text-xl">数值逻辑验证</h4>
-                    <p className="text-sm text-gray-600 leading-relaxed font-serif">
-                        AI 驱动的计算引擎对所有例题与习题进行后台验算。自动检测已知条件与结果的逻辑闭环，识别潜在的数值错误。
-                    </p>
-                </div>
-                <div className="space-y-4">
-                    <div className="w-12 h-12 border-2 border-black rounded-none flex items-center justify-center text-xl">
-                        <i className="fa-solid fa-layer-group"></i>
-                    </div>
-                    <h4 className="font-bold text-xl">一致性查重</h4>
-                    <p className="text-sm text-gray-600 leading-relaxed font-serif">
-                        跨页面分析题目结构。识别仅仅修改数字但逻辑完全雷同的题目，以及前后文符号定义不一致的问题。
-                    </p>
-                </div>
-            </div>
-          </div>
-      </section>
-
-      {/* 4. Dark Footer */}
-      <footer className="bg-[#1f2937] text-white py-24">
-          <div className="max-w-[1400px] mx-auto px-6 md:px-12">
-            <div className="flex flex-col md:flex-row justify-between items-start gap-12">
-                <div className="max-w-md">
-                    <h2 className="font-serif font-black text-4xl mb-6">MathEdit Pro AI</h2>
-                    <p className="text-gray-400 font-serif leading-relaxed mb-8">
-                        重新定义数字时代的教育出版审阅流程。我们将传统出版的严谨标准与生成式人工智能的推理能力相结合，打造无缝的智能辅助系统。
-                    </p>
-                    <div className="font-sans text-xs text-gray-500 uppercase tracking-widest">
-                        &copy; 2024 MathEdit Pro. All Rights Reserved.
-                    </div>
-                </div>
-                
-                <div className="flex flex-col gap-6 text-right">
-                    <div>
-                        <div className="text-xs text-gray-500 uppercase font-sans mb-2">System Status</div>
-                        <div className="flex items-center justify-end gap-3 text-emerald-400 font-mono text-sm">
-                            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
-                            OPERATIONAL
-                        </div>
-                    </div>
-                    {/* Icons removed per user request regarding GitHub connection */}
-                </div>
-            </div>
-          </div>
-      </footer>
-
-      {/* History Modal */}
       {showHistoryModal && (
-          <div className="fixed inset-0 z-[100] flex justify-end">
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowHistoryModal(false)}></div>
-              <div className="relative bg-white w-full max-w-lg h-full shadow-2xl flex flex-col animate-fade-in border-l border-gray-200">
-                  <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-white">
-                      <div>
-                        <h3 className="font-serif font-bold text-2xl">系统日志</h3>
-                        <p className="text-xs font-sans text-gray-400 uppercase mt-1">System Operation Logs</p>
-                      </div>
-                      <button onClick={() => setShowHistoryModal(false)} className="text-2xl hover:text-red-600 transition-colors">
-                        <i className="fa-solid fa-times"></i>
-                      </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4">
-                      {history.length === 0 ? (
-                          <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-4">
-                              <i className="fa-regular fa-folder-open text-4xl"></i>
-                              <p className="font-serif">暂无历史记录</p>
-                          </div>
-                      ) : (
-                          history.map(r => <HistoryRow key={r.id} record={r} onDownload={downloadReport} />)
-                      )}
-                  </div>
-              </div>
-          </div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+            <div 
+                className="bg-white w-full max-w-2xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scale-up border border-slate-100"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2">
+                        <History className="w-6 h-6 text-blue-600"/>
+                        审阅历史归档
+                    </h3>
+                    <button 
+                        onClick={() => setShowHistoryModal(false)}
+                        className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+                    >
+                        <X className="w-5 h-5"/>
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-slate-50/30">
+                    {history.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                            <History className="w-16 h-16 mb-4 opacity-20" />
+                            <p className="text-lg font-medium">暂无历史记录</p>
+                        </div>
+                    ) : (
+                        history.map((record) => (
+                            <HistoryItem 
+                                key={record.id} 
+                                record={record} 
+                                onDownload={downloadReport} 
+                            />
+                        ))
+                    )}
+                </div>
+
+                {history.length > 0 && (
+                    <div className="p-4 border-t border-slate-100 bg-white flex justify-end">
+                        <button 
+                            onClick={() => {
+                                if(confirm("确定要清空所有历史记录吗？此操作不可恢复。")) {
+                                    setHistory([]);
+                                    if (typeof localStorage !== 'undefined') localStorage.removeItem('math_edit_history');
+                                }
+                            }}
+                            className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1.5 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors font-medium"
+                        >
+                            <Trash2 className="w-4 h-4" /> 
+                            清空所有记录
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
       )}
+
+      <RefineModal 
+         isOpen={showRefineModal}
+         onClose={() => setShowRefineModal(false)}
+         onSubmit={handleRefineSubmit}
+         pageNumber={refinePageIndex !== null ? refinePageIndex + pageOffset : 0}
+         isProcessing={isRefining}
+      />
     </div>
   );
 }

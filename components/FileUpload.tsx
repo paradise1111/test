@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { Upload, FileText } from 'lucide-react';
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
@@ -12,6 +13,11 @@ const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, onError, disabled }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   const validateAndSelect = (file: File) => {
     if (file.size > MAX_SIZE_BYTES) {
       onError(`文件过大：当前限制为 ${MAX_SIZE_MB}MB，请拆分文件后上传。`);
@@ -24,41 +30,55 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, onError, disabled
     e.preventDefault();
     e.stopPropagation();
     if (disabled) return;
-    if (e.dataTransfer.files.length > 0) {
-      validateAndSelect(e.dataTransfer.files[0]);
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0 && files[0].type === 'application/pdf') {
+      validateAndSelect(files[0]);
+    }
+  };
+
+  const handleClick = () => {
+    if (!disabled && inputRef.current) {
+      inputRef.current.click();
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      validateAndSelect(e.target.files[0]);
     }
   };
 
   return (
     <div
-      onClick={() => !disabled && inputRef.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      className={`border-2 border-dashed rounded-xl p-6 sm:p-10 text-center transition-all duration-200 select-none active:scale-[0.98] touch-manipulation ${
+        disabled 
+          ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60' 
+          : 'border-blue-300 bg-blue-50 hover:border-blue-500 hover:bg-blue-100 cursor-pointer'
+      }`}
+      onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className={`
-        relative group cursor-pointer py-24 text-center transition-all duration-300
-        border-2 border-dashed border-gray-300 hover:border-black hover:bg-gray-50
-        ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}
-      `}
+      onClick={handleClick}
     >
-      <input type="file" ref={inputRef} accept="application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && validateAndSelect(e.target.files[0])} disabled={disabled} />
-      
-      <div className="flex flex-col items-center justify-center space-y-6">
-        <div className={`
-          text-5xl transition-transform duration-300 group-hover:-translate-y-2
-          ${disabled ? 'text-gray-300' : 'text-black'}
-        `}>
-           <i className="fa-solid fa-cloud-arrow-up"></i>
+      <input
+        type="file"
+        ref={inputRef}
+        accept="application/pdf"
+        className="hidden"
+        onChange={handleChange}
+        disabled={disabled}
+      />
+      <div className="flex flex-col items-center justify-center space-y-4">
+        <div className={`p-4 rounded-full ${disabled ? 'bg-gray-200' : 'bg-white shadow-sm'}`}>
+           {disabled ? <FileText className="w-8 h-8 text-gray-400" /> : <Upload className="w-8 h-8 text-blue-600" />}
         </div>
-        
-        <div className="space-y-3">
-          <h3 className="text-2xl font-bold font-serif text-black tracking-tight group-hover:underline decoration-2 underline-offset-4">
-            点击或拖拽上传原稿 PDF
+        <div className="space-y-1">
+          <h3 className={`text-lg font-semibold ${disabled ? 'text-gray-400' : 'text-gray-900'}`}>
+            点击上传 PDF 稿件
           </h3>
-          <div className="flex items-center justify-center gap-4 text-xs font-sans font-bold text-gray-400 uppercase tracking-widest">
-             <span>Max Size: {MAX_SIZE_MB}MB</span>
-             <span>•</span>
-             <span>Format: PDF</span>
-          </div>
+          <p className="text-sm text-gray-500">
+             支持最大 {MAX_SIZE_MB}MB
+          </p>
         </div>
       </div>
     </div>

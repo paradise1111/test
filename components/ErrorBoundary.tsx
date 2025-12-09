@@ -1,8 +1,8 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Copy } from 'lucide-react';
 
 interface Props {
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 interface State {
@@ -11,34 +11,38 @@ interface State {
   errorInfo: ErrorInfo | null;
 }
 
-class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null,
-    errorInfo: null
-  };
+class ErrorBoundary extends React.Component<Props, State> {
+  public state: State;
 
-  public static getDerivedStateFromError(error: Error): State {
-    // Update state so the next render will show the fallback UI.
-    return { hasError: true, error, errorInfo: null };
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null
+    };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
     this.setState({ errorInfo });
   }
 
-  private handleReload = () => {
+  handleReload = () => {
     window.location.reload();
   };
 
-  private handleCopyError = () => {
+  handleCopyError = () => {
     const text = `Error: ${this.state.error?.message}\n\nStack: ${this.state.errorInfo?.componentStack}`;
     navigator.clipboard.writeText(text);
     alert("错误信息已复制到剪贴板");
   };
 
-  public render() {
+  render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 font-sans">

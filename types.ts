@@ -1,3 +1,4 @@
+
 export interface ProcessingStatus {
   total: number;
   current: number;
@@ -11,6 +12,7 @@ export interface PageResult {
 }
 
 export enum AppState {
+  LOGIN = 'LOGIN',
   IDLE = 'IDLE',
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
@@ -25,4 +27,9 @@ export interface ReportRecord {
   successCount: number;
   results: string[]; // Stores the HTML fragments
   pageOffset: number;
+}
+
+export interface ApiSettings {
+  apiKey: string;
+  baseUrl: string;
 }

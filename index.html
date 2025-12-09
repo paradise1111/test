@@ -1,95 +1,75 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>MathEdit Pro AI - 智能审稿系统</title>
+    <title>MathEdit AI</title>
     
-    <!-- 引入字体: Noto Serif SC (中文主字体) & Poppins (英文副字体) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <!-- Mobile Web App Capable (Android/iOS) -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#2563eb">
     
-    <!-- 引入 Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF.js for processing PDF files in the browser -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
+    <!-- MathJax for rendering math formulas in the preview -->
     <script>
       window.MathJax = {
-        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
-        svg: { fontCache: 'global' }
-      };
-      
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              serif: ['"Noto Serif SC"', 'serif'],
-              sans: ['"Poppins"', 'sans-serif'],
-            },
-            colors: {
-              ink: '#111111',     // 接近纯黑的墨色
-              paper: '#ffffff',   // 纯白纸张
-              subtle: '#f3f4f6',  // 浅灰用于区分区块
-              accent: '#000000',  // 强调色改为黑色，强调印刷感
-            }
-          }
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        svg: {
+          fontCache: 'global'
         }
-      }
+      };
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    
     <style>
-      :root {
-        --bg-paper: #ffffff;
-        --text-ink: #111111;
+      /* Custom scrollbar for the preview area */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
       }
-
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      
+      /* Prevent pull-to-refresh on mobile to feel more like an app */
       body {
-        background-color: var(--bg-paper);
-        color: var(--text-ink);
-        font-family: 'Noto Serif SC', serif; /* 默认使用衬线体营造印刷感 */
-        -webkit-font-smoothing: antialiased;
-        overflow-x: hidden;
+        overscroll-behavior-y: none;
       }
 
-      /* 强制标题使用衬线体 */
-      h1, h2, h3, h4, .serif-title {
-        font-family: "Noto Serif SC", serif;
+      /* Progress Bar Animations */
+      @keyframes striping {
+        0% { background-position: 0 0; }
+        100% { background-position: 30px 0; }
       }
       
-      /* 功能性文字、标签使用非衬线体 */
-      .sans-detail {
-        font-family: "Poppins", sans-serif;
+      .progress-stripes {
+        background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
+        background-size: 30px 30px;
+        animation: striping 1s linear infinite;
       }
 
-      /* 视觉锚点：空心描边效果 */
-      .visual-anchor {
-        font-family: "Noto Serif SC", serif;
-        -webkit-text-stroke: 2px #e5e7eb; /* 浅灰色描边 */
-        color: transparent;
-        line-height: 0.8;
-        font-weight: 900;
-        user-select: none;
+      @keyframes pulse-shadow {
+        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+        70% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
       }
-
-      /* 滚动条样式：极简黑白 */
-      ::-webkit-scrollbar { width: 8px; }
-      ::-webkit-scrollbar-track { background: #fff; border-left: 1px solid #eee; }
-      ::-webkit-scrollbar-thumb { background: #000; }
-      ::-webkit-scrollbar-thumb:hover { background: #333; }
       
-      /* 动画微调 */
-      .animate-fade-in {
-        animation: fadeIn 0.5s ease-out forwards;
-      }
-      @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
+      .animate-pulse-shadow {
+        animation: pulse-shadow 2s infinite;
       }
     </style>
   <script type="importmap">
@@ -107,6 +87,7 @@
 </head>
   <body>
     <div id="root"></div>
+    <!-- This script tag is CRITICAL for Vite to bundle the React code -->
     <script type="module" src="./index.tsx"></script>
   </body>
 </html>

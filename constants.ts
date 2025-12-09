@@ -1,75 +1,68 @@
 
 
 export const SYSTEM_INSTRUCTION = `
-**Role:** 你是中国顶级资深数学教育出版编辑，精通《义务教育数学课程标准（2022年版）》、GB 3102.11 标准。
-**Driven By:** Gemini 3 Pro (High Reasoning Mode)
+**Gemini 2.5 Pro 深度审稿专家 Prompt**
 
-**Task:** 逐页审阅数学稿件。
+**👑 Role Definition**
+You are a **Strict Logic Auditor & Fact Checker** (Role: Gemini 2.5 Pro Mode).
+Your goal is to **IDENTIFY ERRORS** (Logic, Fact, Typos) while **STRICTLY PRESERVING** the user's original text, data, and structure.
 
-**CRITICAL RULES (TOP PRIORITY - 必须强制执行):**
+**🎯 Core Objectives**
+1.  **Data Preservation (HIGHEST PRIORITY)**: **DO NOT** change the original sentence structure, vocabulary, or tone unless it is a hard error. Keep all numbers, variables, formulas, and specific phrasing exactly as is.
+2.  **Math formatting**: **MANDATORY**: Convert all mathematical formulas, variables, and numbers into **LaTeX format** wrapped in dollar signs.
+    *   Inline math: $ a^2 + b^2 = c^2 $
+    *   Block math: $$ \\sum_{i=1}^{n} x_i $$
+3.  **Logic Alignment**: Ensure definitions match examples. Ensure cause-and-effect relationships are valid.
+4.  **Physical/Fact Reality Check**: Verify historical dates, data, and physical descriptions.
 
-1.  **🛡️ 政治敏感性与合规审查 (POLITICAL SENSITIVITY - HIGHEST PRIORITY):**
-    - **地图边界:** 如果文中出现中国地图，必须严格检查藏南、阿克赛钦、台湾岛、南海诸岛（九段线）是否完整。如有任何模糊或错误，必须标记为【重大政治错误】。
-    - **主权表述:** 严禁将“台湾”、“香港”、“澳门”与“国家”并列。必须检查是否使用了“我国”、“国内”等指代不明且可能引发歧义的词汇。
-    - **涉政用语:** 检查题目背景是否涉及不当的政治隐喻或过时的政治口号。
-    - **执行动作:** 遇到任何不确定的地名或政治表述，**必须使用 Google Search 工具**联网核实其官方定义和标准表述。
+**🛠️ Operational Rules (Strict Execution)**
+1.  **The Audit (Internal Processing)**:
+    *   Scan for Logic Gaps, Fact Errors, and Typos.
+2.  **The Revision (Action)**:
+    *   **Fix Hard Errors**: Correct typos and logic/fact errors using <del>original</del><ins>correction</ins>.
+    *   **NO Polishing**: If a sentence is logically correct but "sounds simple", **LEAVE IT ALONE**.
+    *   **Keep Data**: Ensure all lists are identical to the image.
 
-2.  **📝 内容查重与逻辑一致性 (DUPLICATION & LOGIC):**
-    - **题目查重:** 检查当前页面出现的题目是否与前文（或同一页内）重复。如果题目仅仅是改了数字但逻辑完全一样且无教学必要，标记为【疑似重复题目】。
-    - **前后矛盾:** 检查“已知条件”与“求解目标”是否存在逻辑闭环。例如，几何题的文字描述是否与图形标注（如字母位置）冲突。
+**⚠️ Constraints**
+*   **DO NOT** simply output the corrected text without ensuring logical soundness.
+*   **DO NOT** change the original structure.
+*   **DO NOT** hallucinate facts.
+*   **DO NOT** rewrite for "flow" or "style".
 
-3.  **📐 数学与出版规范:**
-    - **术语:** 严禁口语化。必须使用标准术语（如将“图象”统一为“图像”，将“粘”改为“黏”等）。
-    - **符号:** 检查斜体（变量）、正体（单位、特殊函数）是否符合 GB 3102.11。
-    - **验算:** 对所有计算题进行后台验算，标记计算错误。
+---
 
-4.  **⛔ 审阅顺序:** 严格从上到下，从左到右。
+### 📝 Output Format Rules (STRICT HTML)
 
-**Output Format (STRICT HTML):**
-输出 body 内的 div 结构。
+You **MUST** output the response in the following HTML structure. **DO NOT** use Markdown.
 
-<div class="page-review" id="page-{当前页码}">
+<div class="page-review" id="page-{PageNumber}">
     <div class="page-header">
-        <h2 class="page-title">第 {当前页码} 页</h2>
-    </div>
-    
-    <!-- ⚠️ 政治与敏感性专区 (仅当发现问题时显示) -->
-    <!-- 如果发现政治/地图/主权问题，必须放在最前面，用醒目的红色样式 -->
-    <div class="safety-check-section" style="display: {如果有问题 ? 'block' : 'none'}; border: 2px solid #dc2626; background: #fef2f2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-        <h3 style="color: #991b1b; margin: 0 0 10px 0;">🛑 政治与合规性警报</h3>
-        <p style="color: #7f1d1d;">检测到潜在的政治表述或地图错误：...</p>
+        <h2 class="page-title">PAGE {PageNumber} · 深度审阅报告</h2>
     </div>
 
-    <!-- 修订表 -->
-    <div class="review-section">
-        <h3 class="section-title">审稿修订表</h3>
-        <div class="table-container">
-            <table>
-                <thead><tr><th>原文问题</th><th>修订建议</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td class="original-cell"><div class="original-text">...</div></td>
-                        <td class="suggestion-cell">
-                            <div class="suggestion-item">
-                                <span class="tag tag-calc">⛔ 计算错误</span>
-                                <span>...</span>
-                            </div>
-                             <div class="suggestion-item">
-                                <span class="tag tag-dup">🔁 题目重复</span>
-                                <span>本题与第X题逻辑高度雷同...</span>
-                            </div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+    <!-- Part 1: 🛑 深度审核报告 (Critical Review) -->
+    <div class="audit-panel">
+       <h3 class="panel-title">🛑 深度审核报告 (Critical Review)</h3>
+       <div class="audit-items">
+           <!-- List critical issues found. Use class 'logic' for logic errors, 'fact' for fact errors, 'style' for typos -->
+           <div class="audit-item logic">
+               <span class="audit-label">Logic/Fact Issue</span>
+               <p>...Specific description...</p>
+           </div>
+       </div>
     </div>
 
-    <!-- 定稿 -->
-    <div class="final-section">
-        <h3 class="section-title">优化后定稿</h3>
-        <div class="content-box">
-            <p>...<span class="highlight">修改内容</span>...</p>
+    <!-- Part 2: ✍️ 修正后原文 (Corrected Text) -->
+    <div class="revision-document">
+        <h3 class="panel-title">✍️ 修正后原文 (Corrected Text) - 保留原始数据</h3>
+        <div class="document-content">
+            <!-- 
+                Output the FULL text from the image.
+                Use LaTeX for math: $ x + y = z $.
+                ONLY use <del>old</del><ins>new</ins> for ERRORS. 
+            -->
+            <h3>1.1 Section Title</h3>
+            <p>Original text with <del>eror</del><ins>error</ins> correction...</p>
         </div>
     </div>
 </div>
@@ -80,95 +73,275 @@ export const HTML_TEMPLATE_START = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MathEdit AI Pro 报告</title>
+    <title>MathEdit AI Professional Report</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;900&family=Poppins:wght@300;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
     MathJax = {
-      tex: {inlineMath: [['$', '$'], ['\\\\(', '\\\\)']]},
+      tex: {inlineMath: [['$', '$'], ['\\(', '\\)']]},
       svg: {fontCache: 'global'}
     };
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <style>
-        :root { 
-            --app-bg: #F5F5F7;
-            --card-bg: #ffffff;
-            --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
-            --accent-blue: #0071e3;
-            --border-light: #d2d2d7;
+        :root {
+            --ink: #0f172a;
+            --paper: #ffffff;
+            --accent: #2563eb;
+            --highlight: #fef08a;
         }
-        
         body { 
-            font-family: -apple-system, "Songti SC", serif;
-            line-height: 1.6; 
-            color: var(--text-primary); 
-            max-width: 960px; 
-            margin: 0 auto; 
-            padding: 40px 20px; 
-            background: var(--app-bg); 
+            font-family: 'Noto Serif SC', serif; 
+            background-color: #f8fafc;
+            color: var(--ink);
             -webkit-font-smoothing: antialiased;
+            font-size: 15px; 
+            line-height: 1.6; 
         }
+        .font-poppins { font-family: 'Poppins', sans-serif; }
         
-        .page-review { 
-            background: var(--card-bg); 
-            border-radius: 20px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.03); 
-            margin-bottom: 40px; 
-            padding: 40px; 
-            border: 1px solid rgba(0,0,0,0.05);
-        }
+        h1, h2, h3, h4 { font-weight: 900; letter-spacing: -0.02em; margin-bottom: 0.4em; line-height: 1.2; }
+        p { font-weight: 500; text-align: justify; margin-bottom: 0.8em; }
         
-        .page-review.error-card { border-left: 6px solid #ff3b30; }
-
-        .page-title { 
-            font-size: 24px; 
-            font-weight: 700; 
-            letter-spacing: -0.02em;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--border-light);
-        }
-
-        table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; margin: 20px 0; }
-        th { text-align: left; padding: 12px; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border-light); }
-        td { padding: 16px 12px; vertical-align: top; border-bottom: 1px solid #f2f2f2; }
-        
-        .original-text { background: #fff2f2; color: #d70015; padding: 8px; border-radius: 8px; font-family: monospace; }
-        .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; margin-right: 6px; text-transform: uppercase; }
-        .tag-error { background: #ff3b30; color: white; }
-        .tag-calc { background: #ff9500; color: white; }
-        .tag-dup { background: #af52de; color: white; } /* Purple for duplication */
-        .tag-style { background: #0071e3; color: white; }
-
-        .content-box { 
-            font-family: "Songti SC", "Times New Roman", serif; 
-            font-size: 17px; 
-            line-height: 1.8;
-            color: #1d1d1f;
-            background: #fafafa;
-            padding: 30px;
-            border-radius: 12px;
+        /* Visual Anchor */
+        .visual-anchor {
+            font-family: 'Poppins', sans-serif;
+            font-size: 6rem; 
+            line-height: 0.8;
+            font-weight: 900;
+            color: transparent;
+            -webkit-text-stroke: 1px #cbd5e1; 
+            opacity: 0.3; 
+            user-select: none;
+            margin-bottom: 0.5rem;
         }
 
-        .highlight { background-color: rgba(255, 214, 10, 0.4); border-bottom: 2px solid #ffd60a; padding: 0 2px; }
-        
-        a { color: var(--accent-blue); text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        
-        .safety-check-section {
-            border: 2px solid #dc2626; 
-            background: #fef2f2; 
-            padding: 15px; 
-            border-radius: 8px; 
-            margin-bottom: 20px;
+        /* Card Style */
+        .page-review {
+            background: var(--paper);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin-bottom: 2rem; 
+            padding: 0;
+            break-inside: avoid;
+            border-radius: 8px;
+            overflow: hidden;
         }
+        
+        .page-header {
+            background: var(--ink);
+            color: white;
+            padding: 0.75rem 1.5rem; 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'Poppins', sans-serif;
+        }
+        .page-title { margin: 0; font-size: 1rem; color: white !important; text-transform: uppercase; letter-spacing: 0.05em; }
+        
+        /* --- Audit Panel --- */
+        .audit-panel {
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1.5rem;
+        }
+        .panel-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Poppins', sans-serif;
+        }
+        .audit-items {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .audit-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 0.9rem;
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        .audit-label {
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            white-space: nowrap;
+            margin-top: 2px;
+            text-transform: uppercase;
+            font-family: 'Poppins', sans-serif;
+        }
+        .audit-item.logic .audit-label { background: #be123c; } 
+        .audit-item.fact .audit-label { background: #854d0e; }
+        .audit-item.style .audit-label { background: #0369a1; }
+        .audit-item p { margin: 0; font-size: 0.95rem; color: #334155; line-height: 1.5; }
+
+        /* --- Revision Document (Review Mode) --- */
+        .revision-document {
+            padding: 2rem 3rem;
+            background: #fff;
+            position: relative;
+        }
+        
+        .document-content {
+            font-size: 1.1rem;
+            line-height: 2;
+            color: #1e293b;
+        }
+        
+        /* Track Changes Styles */
+        ins {
+            background-color: #dcfce7; /* Green highlight */
+            color: #15803d;
+            text-decoration: none;
+            border-bottom: 2px solid #22c55e;
+            padding: 0 2px;
+            font-weight: 600;
+        }
+        
+        del {
+            background-color: #fee2e2; /* Red highlight */
+            color: #b91c1c;
+            text-decoration: line-through;
+            padding: 0 2px;
+            margin-right: 2px;
+        }
+
+        /* --- Clean Read / Word View Mode --- */
+        .word-view-container {
+            width: 100%;
+            background: #fff;
+            padding: 0;
+        }
+        
+        /* Simulating an A4 page look but optimized for screen real estate */
+        .word-page {
+            width: 100%;
+            max-width: 210mm; /* A4 width */
+            margin: 0 auto;
+            background: white;
+            padding: 20px 24px; /* Compact padding */
+            min-height: 200px;
+            color: #000;
+            font-family: 'Times New Roman', Times, serif; 
+            font-size: 11pt;
+            line-height: 1.5;
+        }
+        
+        @media (min-width: 768px) {
+            .word-page {
+                padding: 40px 48px; /* Larger padding on desktop */
+                font-size: 12pt;
+            }
+        }
+        
+        .word-page h1, .word-page h2, .word-page h3 {
+            font-family: 'Arial', sans-serif;
+            color: #2c3e50;
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+        }
+
+        .word-page p {
+            margin-bottom: 1em;
+            text-align: justify;
+        }
+
+        .solution-block {
+            background-color: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 4px 4px 0;
+            font-family: sans-serif;
+            font-size: 0.95rem;
+        }
+
+        /* Sidebar Nav */
+        .nav-link {
+            display: block;
+            padding: 4px 0;
+            border-bottom: 1px solid #f1f5f9;
+            color: #64748b;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 500;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+            text-decoration: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .nav-link:hover { color: var(--ink); padding-left: 4px; border-bottom: 1px solid var(--ink); }
+        .nav-link.error { color: #ef4444; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
-<body>
-    <div style="text-align: center; margin-bottom: 60px;">
-        <h1 style="font-weight: 800; font-size: 32px; letter-spacing: -0.03em;">MathEdit AI 审阅报告</h1>
-        <p style="color: #86868b;">Powered by Gemini 3 Pro</p>
-    </div>
-`;
+<body class="min-h-screen flex flex-col">
 
-export const HTML_TEMPLATE_END = `</body></html>`;
+    <!-- I. HEADER -->
+    <header class="w-full border-b-2 border-slate-900 bg-white py-4 px-6">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-black text-slate-900 mb-0 tracking-tighter leading-none">
+                    MathEdit<span class="text-blue-600">.</span>AI
+                </h1>
+                <p class="font-poppins text-[0.65rem] font-bold text-slate-400 tracking-[0.25em] uppercase mt-1">
+                    Professional Manuscript Review System
+                </p>
+            </div>
+            <div class="mt-2 md:mt-0 text-right font-poppins">
+                <div class="text-[0.6rem] font-bold uppercase tracking-widest text-slate-400">Date</div>
+                <div class="text-lg font-bold text-slate-900" id="current-date"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- II. MAIN BODY -->
+    <main class="flex-grow w-full max-w-7xl mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
+            
+            <aside class="hidden lg:block lg:col-span-3 relative">
+                <div class="sticky top-6">
+                    <div class="visual-anchor">A</div>
+                    <div class="relative z-10 pl-1 mt-[-2rem]">
+                        <h3 class="font-noto text-sm font-black mb-3 border-l-2 border-blue-600 pl-3 uppercase tracking-wider text-slate-900">
+                            Index
+                        </h3>
+                        <nav class="max-h-[75vh] overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-0.5">
+                           <!--NAV_LINKS_PLACEHOLDER-->
+                        </nav>
+                    </div>
+                </div>
+            </aside>
+
+            <div class="col-span-1 lg:col-span-9">`;
+
+export const HTML_TEMPLATE_END = `
+            </div>
+        </div>
+    </main>
+    <footer class="text-center py-6 text-slate-400 font-poppins text-xs border-t border-slate-200 mt-auto">
+        MathEdit AI System
+    </footer>
+</body>
+</html>`;

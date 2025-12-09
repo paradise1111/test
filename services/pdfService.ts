@@ -62,14 +62,13 @@ export const loadPdf = async (file: File): Promise<PdfJsDocument> => {
 };
 
 // NEW: Extract text from a reference PDF to be used as Knowledge Base
-// This export was missing in the previous build causing the error.
 export const extractTextFromPdf = async (file: File): Promise<string> => {
   try {
     const pdf = await loadPdf(file);
     let fullText = "";
     
     // Limit to first 50 pages to prevent memory issues, 
-    // though Gemini Flash can handle 1M tokens.
+    // though Gemini Flash can handle 1M tokens (approx 700 pages of text).
     // We'll read up to 100 pages for the knowledge base.
     const maxPages = Math.min(pdf.numPages, 100);
     
@@ -93,11 +92,12 @@ export const renderPageToImage = async (pdf: PdfJsDocument, pageNumber: number, 
   // Initial viewport at 1.0 scale
   let viewport = page.getViewport({ scale: 1.0 });
   
-  // CRITICAL OPTIMIZATION:
-  // Reduced max dimension to 600px (was 800px/1024px).
-  // 600px is the sweet spot: sufficient for Gemini Pro to read formulas,
-  // but small enough to maximize upload speed and minimize "RPC/XHR" network errors.
-  const MAX_DIMENSION = 600;
+  // CRITICAL OPTIMIZATION FOR RPC/XHR PAYLOAD SIZE:
+  // Reduced MAX_DIMENSION from 1024 to 768.
+  // This drastically reduces the base64 payload size to prevent 'Rpc failed due to xhr error'.
+  // 768px is still sufficient for Gemini 2.5/3.0 to read text clearly.
+  const MAX_DIMENSION = 768; 
+  
   if (viewport.width > MAX_DIMENSION || viewport.height > MAX_DIMENSION) {
       const ratio = Math.min(MAX_DIMENSION / viewport.width, MAX_DIMENSION / viewport.height);
       viewport = page.getViewport({ scale: ratio });
@@ -118,10 +118,9 @@ export const renderPageToImage = async (pdf: PdfJsDocument, pageNumber: number, 
 
   await page.render({ canvasContext: context, viewport }).promise;
 
-  // Optimization: Use 0.5 quality JPEG. 
-  // Slightly higher quality (0.5 vs 0.4) to compensate for the lower resolution (600px),
-  // ensuring subscripts and small math symbols remain legible.
-  return canvas.toDataURL('image/jpeg', 0.5);
+  // Optimization: Use 0.3 quality JPEG (down from 0.4).
+  // Lower quality drastically reduces base64 string length, essential for unstable proxies.
+  return canvas.toDataURL('image/jpeg', 0.3);
 };
 
 /**
