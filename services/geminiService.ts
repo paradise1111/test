@@ -33,8 +33,20 @@ export const clearApiSettings = () => {
 // Helper to test connection with specific settings
 export const testConnection = async (apiKey: string, baseUrl: string): Promise<boolean> => {
     try {
-        const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        const testClient = new GoogleGenAI({ apiKey, baseUrl: cleanBaseUrl });
+        let cleanBaseUrl = baseUrl.trim();
+        if (cleanBaseUrl.endsWith('/')) cleanBaseUrl = cleanBaseUrl.slice(0, -1);
+        
+        const config: any = { apiKey };
+        
+        // Only set baseUrl if it's NOT the default Google endpoint.
+        // This avoids potential issues where the SDK might misbehave with the default URL passed explicitly.
+        if (cleanBaseUrl && cleanBaseUrl !== 'https://generativelanguage.googleapis.com') {
+             config.baseUrl = cleanBaseUrl;
+             // Some proxies/SDK versions prefer rootUrl, setting both ensures compatibility
+             config.rootUrl = cleanBaseUrl;
+        }
+
+        const testClient = new GoogleGenAI(config);
         
         // Simple test request
         await testClient.models.generateContent({
@@ -119,16 +131,18 @@ const getClient = (): GoogleGenAI => {
       throw new Error("API configuration missing. Please login.");
     }
     
-    // Normalize URL: Remove trailing slash
-    const cleanBaseUrl = settings.baseUrl.endsWith('/') 
-        ? settings.baseUrl.slice(0, -1) 
-        : settings.baseUrl;
+    let cleanBaseUrl = settings.baseUrl.trim();
+    if (cleanBaseUrl.endsWith('/')) cleanBaseUrl = cleanBaseUrl.slice(0, -1);
 
-    // Initialize with user provided settings
-    client = new GoogleGenAI({ 
-        apiKey: settings.apiKey,
-        baseUrl: cleanBaseUrl
-    });
+    const config: any = { apiKey: settings.apiKey };
+    
+    // Logic: If user provides a custom proxy, inject it. Otherwise use SDK default.
+    if (cleanBaseUrl && cleanBaseUrl !== 'https://generativelanguage.googleapis.com') {
+         config.baseUrl = cleanBaseUrl;
+         config.rootUrl = cleanBaseUrl;
+    }
+
+    client = new GoogleGenAI(config);
   }
   return client;
 };
@@ -141,7 +155,15 @@ const getErrorDetails = (error: any) => {
     const msg = (error.message || error.toString() || '').toLowerCase();
     const code = error.status || error.code;
 
-    if (code === 401 || msg.includes('invalid api key')) {
+    if (code === 400 || msg.includes('api key not valid') || msg.includes('invalid_argument')) {
+        return {
+            title: '配置错误 (Invalid Request)',
+            desc: 'API Key 无效或请求参数错误。',
+            tips: ['请检查 API Key 是否正确复制。', '如果使用代理，请确保 Base URL 配置正确。']
+        };
+    }
+
+    if (code === 401 || msg.includes('unauthenticated')) {
         return {
             title: '鉴权失败 (Authentication Failed)',
             desc: 'API Key 无效或已过期。',

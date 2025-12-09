@@ -38,7 +38,18 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             setTestMessage('连接成功！API Key 有效。');
         } catch (error: any) {
             setTestStatus('error');
-            setTestMessage(error.message || '连接失败，请检查配置。');
+            let msg = error.message || '连接失败，请检查配置。';
+            
+            // 友好的错误提示映射
+            if (msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT')) {
+                msg = 'API Key 无效。请检查是否复制完整，或密钥是否已过期。';
+            } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+                msg = '网络连接失败。请检查 Base URL 是否正确，或网络是否通畅。';
+            } else if (msg.includes('404')) {
+                msg = '接口地址 (404) 错误。Base URL 可能配置有误。';
+            }
+            
+            setTestMessage(msg);
         } finally {
             setIsTesting(false);
         }
@@ -116,7 +127,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                              testStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
                          }`}>
                              {testStatus === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
-                             <span>{testMessage}</span>
+                             <span className="break-all">{testMessage}</span>
                          </div>
                     )}
 
