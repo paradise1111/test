@@ -7,9 +7,9 @@ import RefineModal from './components/RefineModal';
 import LoginScreen from './components/LoginScreen';
 import { AppState, ProcessingStatus, ReportRecord, ApiSettings } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf, extractTextFromPdf } from './services/pdfService';
-import { analyzePageContent, extractLearningRule, saveApiSettings, getApiSettings, clearApiSettings } from './services/geminiService';
+import { analyzePageContent, extractLearningRule, saveApiSettings, getApiSettings, clearApiSettings, fetchModels } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
-import { BookOpen, FileCheck, AlertCircle, PauseCircle, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock, X, Library, Upload, Link, Sparkles, Calculator, Brain, Search, Zap, BrainCircuit, Rocket, Sigma, LogOut, Settings } from 'lucide-react';
+import { BookOpen, FileCheck, AlertCircle, PauseCircle, RotateCw, Download, ChevronLeft, History, FileOutput, Trash2, ChevronDown, ChevronUp, CheckCircle2, Clock, X, Library, Upload, Link, Sparkles, Calculator, Brain, Search, Zap, Sigma, LogOut, Settings } from 'lucide-react';
 
 const HistoryItem: React.FC<{ 
     record: ReportRecord; 
@@ -109,6 +109,15 @@ const HistoryItem: React.FC<{
     );
 };
 
+// Default models fallback
+const DEFAULT_MODELS = [
+    'gemini-2.0-flash-thinking-exp-01-21',
+    'gemini-2.0-pro-exp-02-05',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-pro-latest',
+    'gemini-1.5-flash-latest'
+];
+
 function App() {
   const [appState, setAppState] = useState<AppState>(AppState.LOGIN);
   const [status, setStatus] = useState<ProcessingStatus>({
@@ -126,7 +135,10 @@ function App() {
   const [history, setHistory] = useState<ReportRecord[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
+  // Model Selection State
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [availableModels, setAvailableModels] = useState<string[]>(DEFAULT_MODELS);
+  
   const [enableSearch, setEnableSearch] = useState<boolean>(true);
   const [enableSolutions, setEnableSolutions] = useState<boolean>(false);
 
@@ -148,10 +160,20 @@ function App() {
     const settings = getApiSettings();
     if (settings) {
         setAppState(AppState.IDLE);
+        // Fetch models when we confirm we have settings
+        fetchModels().then(models => {
+            if (models.length > 0) {
+                setAvailableModels(models);
+                if (!models.includes(selectedModel)) {
+                    setSelectedModel(models[0]);
+                }
+            }
+        });
     } else {
         setAppState(AppState.LOGIN);
     }
-
+    
+    // ... rest of restoration logic ...
     if (typeof localStorage !== 'undefined') {
         try {
             const savedHistory = localStorage.getItem('math_edit_history');
@@ -205,21 +227,24 @@ function App() {
       }
   }, [history, learnedRules, results, status, pageOffset, currentFile]);
   
-  const handleLogin = (settings: ApiSettings) => {
+  const handleLogin = async (settings: ApiSettings) => {
       saveApiSettings(settings);
       setAppState(AppState.IDLE);
+      // Immediately fetch models
+      const models = await fetchModels();
+      if (models.length > 0) {
+          setAvailableModels(models);
+          setSelectedModel(models[0]);
+      }
   };
 
   const handleSettings = () => {
-      // Go back to login screen but do NOT clear the settings
-      // Login screen will auto-load them from localStorage
       setAppState(AppState.LOGIN);
   };
 
   const handleLogout = () => {
       clearApiSettings();
       setAppState(AppState.LOGIN);
-      // Clean up current session
       setCurrentFile(null);
       setResults([]);
       localStorage.removeItem('math_edit_current_session');
@@ -258,12 +283,10 @@ function App() {
   };
 
   const handleStop = () => {
-    // 1. Abort ongoing network requests immediately
     if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
     }
-    // 2. Update UI status immediately
     setStatus(prev => ({ 
         ...prev, 
         isProcessing: false, 
@@ -273,7 +296,7 @@ function App() {
   };
 
   const resetApp = () => {
-      handleStop(); // Ensure things are stopped before reset
+      handleStop(); 
       setAppState(AppState.IDLE);
       setResults([]);
       setActivePageIndices([]);
@@ -327,10 +350,9 @@ function App() {
       try {
           if (correctedText) {
               if (addToMemory) {
-                  const newRule = await extractLearningRule(previousHtml, correctedText);
+                  const newRule = await extractLearningRule(previousHtml, correctedText, selectedModel);
                   setLearnedRules(prev => [...prev, newRule]);
               }
-
               const userHtmlWrapper = `
                 <div class="page-review" id="page-${realPageNum}">
                     <div class="page-header">
@@ -345,7 +367,6 @@ function App() {
                     </div>
                 </div>
               `;
-              
               setResults(prev => {
                   const next = [...prev];
                   next[refinePageIndex] = userHtmlWrapper;
@@ -396,7 +417,6 @@ function App() {
     setAppState(AppState.PROCESSING);
     setActivePageIndices([]);
     
-    // Create a new AbortController for this run
     abortControllerRef.current = new AbortController();
     const { signal } = abortControllerRef.current;
 
@@ -419,16 +439,16 @@ function App() {
         total: totalPages,
         current: completedCount,
         isProcessing: true,
-        currentStage: '启动智能审阅引擎 (Turbo Mode)...',
+        currentStage: '启动智能审阅引擎...',
       });
 
-      const CONCURRENCY_LIMIT = selectedModel.includes('lite') ? 5 : (selectedModel.includes('flash') ? 4 : 2);
+      // Simple concurrency logic: Lite/Flash = 4, Pro = 2
+      const CONCURRENCY_LIMIT = selectedModel.includes('flash') ? 4 : 2;
       
       const queue = [...pagesToProcess]; 
       
       const worker = async (workerId: number) => {
         while (queue.length > 0) {
-            // Immediate abort check inside the loop
             if (signal.aborted) break;
 
             const pageNum = queue.shift(); 
@@ -453,7 +473,7 @@ function App() {
                     enableSolutions,
                     learnedRules,
                     undefined,
-                    signal // Pass the signal to the service
+                    signal
                 );
 
                 if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -462,10 +482,7 @@ function App() {
                 setResults([...finalResults]); 
 
             } catch (err: any) {
-                // If stopped manually, do not record as error, just exit
-                if (err.name === 'AbortError' || signal.aborted) {
-                    break; 
-                }
+                if (err.name === 'AbortError' || signal.aborted) break; 
 
                 console.error(`Error on page ${pageNum}`, err);
                 const realPageNum = pageNum + (pageOffset - 1);
@@ -484,7 +501,6 @@ function App() {
                 finalResults[pageNum - 1] = errorHtml;
                 setResults([...finalResults]);
             } finally {
-                // Only increment status if NOT aborted (or if completed before abort)
                 if (!signal.aborted) {
                     completedCount++;
                     setStatus(prev => ({ ...prev, current: completedCount }));
@@ -504,8 +520,7 @@ function App() {
         setAppState(AppState.COMPLETED);
         archiveCurrentSession(finalResults);
       } else {
-         // UI already handled in handleStop, but ensure state is correct
-         setAppState(AppState.PROCESSING); // Stays in processing view so user can resume or see what's done
+         setAppState(AppState.PROCESSING); 
       }
 
     } catch (err: any) {
@@ -654,7 +669,7 @@ function App() {
                     <div className="text-center space-y-6 py-8">
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold mb-2">
                              <Sparkles className="w-4 h-4" /> 
-                             Gemini 3 Pro / 2.5 Flash / Flash Lite
+                             {selectedModel}
                         </div>
                         <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                             重新定义 <span className="text-blue-600">数学出版</span> 审阅流程
@@ -770,34 +785,25 @@ function App() {
                                             </button>
                                         </div>
 
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <button
-                                                onClick={() => setSelectedModel('gemini-3-pro-preview')}
-                                                className={`p-2 rounded-lg border text-left transition-all ${selectedModel === 'gemini-3-pro-preview' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'hover:bg-slate-50 border-slate-200'}`}
-                                            >
-                                                <div className="font-bold text-xs text-blue-900 flex items-center gap-1">
-                                                    <BrainCircuit className="w-3 h-3"/> Pro
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">选择模型 (Select Model)</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={selectedModel}
+                                                    onChange={(e) => setSelectedModel(e.target.value)}
+                                                    className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8 font-medium"
+                                                >
+                                                    {availableModels.map(model => (
+                                                        <option key={model} value={model}>{model}</option>
+                                                    ))}
+                                                </select>
+                                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                                                    <ChevronDown className="h-4 w-4" />
                                                 </div>
-                                                <div className="text-[9px] text-slate-500 mt-1">高精 · 慢</div>
-                                            </button>
-                                            <button
-                                                onClick={() => setSelectedModel('gemini-2.5-flash')}
-                                                className={`p-2 rounded-lg border text-left transition-all ${selectedModel === 'gemini-2.5-flash' ? 'bg-amber-50 border-amber-500 ring-1 ring-amber-500' : 'hover:bg-slate-50 border-slate-200'}`}
-                                            >
-                                                <div className="font-bold text-xs text-amber-900 flex items-center gap-1">
-                                                    <Zap className="w-3 h-3"/> Flash
-                                                </div>
-                                                <div className="text-[9px] text-slate-500 mt-1">均衡 · 快</div>
-                                            </button>
-                                             <button
-                                                onClick={() => setSelectedModel('gemini-2.5-flash-lite')}
-                                                className={`p-2 rounded-lg border text-left transition-all ${selectedModel === 'gemini-2.5-flash-lite' ? 'bg-purple-50 border-purple-500 ring-1 ring-purple-500' : 'hover:bg-slate-50 border-slate-200'}`}
-                                            >
-                                                <div className="font-bold text-xs text-purple-900 flex items-center gap-1">
-                                                    <Rocket className="w-3 h-3"/> Lite
-                                                </div>
-                                                <div className="text-[9px] text-slate-500 mt-1">低延迟</div>
-                                            </button>
+                                            </div>
+                                            <p className="text-[10px] text-slate-400">
+                                                列表已从服务器自动获取。如遇网络问题将使用默认列表。
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
