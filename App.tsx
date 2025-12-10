@@ -5,7 +5,7 @@ import ProgressBar from './components/ProgressBar';
 import ReportPreview from './components/ReportPreview';
 import RefineModal from './components/RefineModal';
 import LoginScreen from './components/LoginScreen';
-import { AppState, ProcessingStatus, ReportRecord, ApiSettings } from './types';
+import { AppState, ProcessingStatus, ReportRecord, ApiSettings, AiProvider } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf, extractTextFromPdf } from './services/pdfService';
 import { analyzePageContent, extractLearningRule, saveApiSettings, getApiSettings, clearApiSettings, fetchModels } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
@@ -109,21 +109,32 @@ const HistoryItem: React.FC<{
     );
 };
 
-// Mixed defaults to cover all bases if fetch fails
-const DEFAULT_MODELS = [
-    // Google
-    'gemini-2.5-flash',
-    'gemini-2.0-flash-exp',
-    'gemini-1.5-pro-latest',
-    // OpenAI / Compatible
-    'gpt-4o',
-    'gpt-4o-mini',
-    'grok-2-vision-1212',
-    'deepseek-chat',
-    // Anthropic
-    'claude-3-5-sonnet-20240620',
-    'claude-3-opus-20240229'
-];
+// Provider-specific default models to use if automatic fetching fails or is empty
+const PROVIDER_DEFAULTS: Record<AiProvider, string[]> = {
+    google: [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash-exp',
+        'gemini-1.5-pro-latest'
+    ],
+    openai: [
+        // OpenAI
+        'gpt-4o',
+        'gpt-4o-mini',
+        'gpt-4-turbo',
+        // xAI (Grok)
+        'grok-2-vision-1212',
+        'grok-2-1212',
+        'grok-beta',
+        // DeepSeek
+        'deepseek-chat',
+        'deepseek-reasoner'
+    ],
+    anthropic: [
+        'claude-3-5-sonnet-20240620',
+        'claude-3-opus-20240229',
+        'claude-3-haiku-20240307'
+    ]
+};
 
 function App() {
   const [appState, setAppState] = useState<AppState>(AppState.LOGIN);
@@ -144,8 +155,8 @@ function App() {
 
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
-  const [availableModels, setAvailableModels] = useState<string[]>(DEFAULT_MODELS);
-  const [provider, setProvider] = useState<string>('google');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [provider, setProvider] = useState<AiProvider>('google');
   
   const [enableSearch, setEnableSearch] = useState<boolean>(true);
   const [enableSolutions, setEnableSolutions] = useState<boolean>(false);
@@ -163,29 +174,32 @@ function App() {
   // Controller for aborting requests immediately
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Helper to load models
+  const loadModelsForProvider = async (currentProvider: AiProvider) => {
+    const models = await fetchModels();
+    if (models.length > 0) {
+        setAvailableModels(models);
+        // If current selected model is not in new list, pick first
+        if (!models.includes(selectedModel)) {
+            setSelectedModel(models[0]);
+        }
+    } else {
+        // Fallback to static defaults
+        const defaults = PROVIDER_DEFAULTS[currentProvider] || PROVIDER_DEFAULTS.google;
+        setAvailableModels(defaults);
+        if (!defaults.includes(selectedModel)) {
+            setSelectedModel(defaults[0]);
+        }
+    }
+  };
+
   useEffect(() => {
     // Check for login status
     const settings = getApiSettings();
     if (settings) {
         setAppState(AppState.IDLE);
         setProvider(settings.provider);
-        // Fetch models when we confirm we have settings
-        fetchModels().then(models => {
-            if (models.length > 0) {
-                setAvailableModels(models);
-                if (!models.includes(selectedModel)) {
-                    setSelectedModel(models[0]);
-                }
-            } else if (settings.provider === 'anthropic') {
-                 // Anthropic fallback if fetch returns empty
-                 setAvailableModels([
-                    'claude-3-5-sonnet-20240620', 
-                    'claude-3-opus-20240229', 
-                    'claude-3-haiku-20240307'
-                 ]);
-                 setSelectedModel('claude-3-5-sonnet-20240620');
-            }
-        });
+        loadModelsForProvider(settings.provider);
     } else {
         setAppState(AppState.LOGIN);
     }
@@ -248,18 +262,7 @@ function App() {
       saveApiSettings(settings);
       setAppState(AppState.IDLE);
       setProvider(settings.provider);
-      
-      const models = await fetchModels();
-      if (models.length > 0) {
-          setAvailableModels(models);
-          setSelectedModel(models[0]);
-      } else if (settings.provider === 'anthropic') {
-         setAvailableModels(['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']);
-         setSelectedModel('claude-3-5-sonnet-20240620');
-      } else {
-         // Keep default list but try to match provider if possible (heuristic)
-         setAvailableModels(DEFAULT_MODELS);
-      }
+      await loadModelsForProvider(settings.provider);
   };
 
   const handleSettings = () => {
@@ -695,7 +698,7 @@ function App() {
                     <div className="text-center space-y-6 py-8">
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold mb-2">
                              <Sparkles className="w-4 h-4" /> 
-                             {selectedModel} ({provider === 'google' ? 'Google' : provider === 'openai' ? 'OpenAI/Grok' : 'Anthropic'})
+                             {selectedModel} ({provider === 'google' ? 'Google' : provider === 'openai' ? 'OpenAI/Compatible' : 'Anthropic'})
                         </div>
                         <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                             重新定义 <span className="text-blue-600">数学出版</span> 审阅流程
@@ -832,7 +835,7 @@ function App() {
                                                 </div>
                                             </div>
                                             <p className="text-[10px] text-slate-400">
-                                                列表已从服务器自动获取。如遇网络问题将使用默认列表。
+                                                {availableModels.length > 0 ? "列表已从服务器获取 (或使用厂商默认配置)。" : "正在加载模型列表..."}
                                             </p>
                                         </div>
                                     </div>

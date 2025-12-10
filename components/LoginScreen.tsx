@@ -10,9 +10,18 @@ interface LoginScreenProps {
 
 const PROVIDERS: { id: AiProvider; name: string; defaultUrl: string }[] = [
     { id: 'google', name: 'Google Gemini', defaultUrl: 'https://generativelanguage.googleapis.com' },
-    { id: 'openai', name: 'OpenAI / Grok / DeepSeek', defaultUrl: 'https://api.openai.com/v1' },
+    { id: 'openai', name: 'OpenAI / Compatible (Grok, DeepSeek)', defaultUrl: 'https://api.openai.com/v1' },
     { id: 'anthropic', name: 'Anthropic Claude', defaultUrl: 'https://api.anthropic.com' },
 ];
+
+const ENDPOINT_PRESETS: Record<string, { name: string; url: string }[]> = {
+    openai: [
+        { name: 'OpenAI (Official)', url: 'https://api.openai.com/v1' },
+        { name: 'xAI (Grok)', url: 'https://api.x.ai/v1' },
+        { name: 'DeepSeek', url: 'https://api.deepseek.com' },
+        { name: 'SiliconFlow (硅基流动)', url: 'https://api.siliconflow.cn/v1' }
+    ]
+};
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [apiKey, setApiKey] = useState('');
@@ -155,9 +164,33 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
                             />
                         </div>
-                        <p className="text-[10px] text-slate-400 leading-relaxed px-1">
+                        
+                        {/* Quick Presets for OpenAI Compatible Providers */}
+                        {provider === 'openai' && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {ENDPOINT_PRESETS.openai.map((preset) => (
+                                    <button
+                                        key={preset.name}
+                                        type="button"
+                                        onClick={() => {
+                                            setBaseUrl(preset.url);
+                                            setTestStatus('idle');
+                                        }}
+                                        className={`px-2 py-1 text-[10px] font-bold rounded border transition-colors ${
+                                            baseUrl === preset.url 
+                                            ? 'bg-blue-50 text-blue-600 border-blue-200' 
+                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        {preset.name}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        <p className="text-[10px] text-slate-400 leading-relaxed px-1 mt-1">
                             {provider === 'google' && '默认: https://generativelanguage.googleapis.com'}
-                            {provider === 'openai' && '默认: https://api.openai.com/v1 (支持 Grok/DeepSeek 兼容接口)'}
+                            {provider === 'openai' && '支持 Grok (xAI), DeepSeek 等兼容接口。请在上放选择或手动输入 Base URL。'}
                             {provider === 'anthropic' && '默认: https://api.anthropic.com'}
                         </p>
                     </div>
