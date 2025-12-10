@@ -13,80 +13,29 @@ export const saveApiSettings = (settings: ApiSettings) => {
 export const getApiSettings = (): ApiSettings | null => {
     const apiKey = localStorage.getItem('mathedit_api_key');
     let baseUrl = localStorage.getItem('mathedit_base_url');
-    const provider = (localStorage.getItem('mathedit_provider') as AiProvider) || 'google';
+    // Default to openai if not set, as requested for OneAPI compatibility
+    const provider = (localStorage.getItem('mathedit_provider') as AiProvider) || 'openai';
     
-    // Set default base URLs if missing
     if (!baseUrl) {
         if (provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com';
-        else if (provider === 'openai') baseUrl = 'https://api.openai.com/v1';
-        else if (provider === 'anthropic') baseUrl = 'https://api.anthropic.com';
+        else baseUrl = 'https://api.openai.com/v1'; // Default placeholder
     }
     
-    if (!apiKey && process.env.API_KEY && provider === 'google') {
-        return { apiKey: process.env.API_KEY, baseUrl: baseUrl!, provider };
-    }
-
     if (!apiKey) return null;
     return { apiKey, baseUrl: baseUrl!, provider };
 };
 
 export const clearApiSettings = () => {
     localStorage.removeItem('mathedit_api_key');
-    // We keep the provider/url preference for convenience
 };
 
 const normalizeUrl = (url: string) => {
     let clean = url.trim();
     while (clean.endsWith('/')) clean = clean.slice(0, -1);
+    // Ensure we don't accidentally double-append /v1 if the user already provided it
+    // But for raw base URLs like http://domain.com, we might need it. 
+    // The user example shows input: http://.../v1, so we assume user inputs full base path.
     return clean;
-};
-
-// --- Provider Specific Logic ---
-
-const getFetchModelsUrl = (settings: ApiSettings) => {
-    const base = normalizeUrl(settings.baseUrl);
-    switch (settings.provider) {
-        case 'google':
-            return `${base}/v1beta/models?key=${settings.apiKey}`;
-        case 'openai':
-            // Standard OpenAI compatible endpoint for listing models
-            return `${base}/models`;
-        case 'anthropic':
-            // Anthropic doesn't have a standard public list models endpoint yet
-            return null;
-        default:
-            return `${base}/models`;
-    }
-};
-
-const getGenerateUrl = (settings: ApiSettings, model: string) => {
-    const base = normalizeUrl(settings.baseUrl);
-    const cleanModel = model.replace('models/', '');
-    
-    switch (settings.provider) {
-        case 'google':
-            return `${base}/v1beta/models/${cleanModel}:generateContent?key=${settings.apiKey}`;
-        case 'openai':
-            return `${base}/chat/completions`;
-        case 'anthropic':
-            return `${base}/v1/messages`;
-    }
-};
-
-const getHeaders = (settings: ApiSettings) => {
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-    };
-    
-    if (settings.provider === 'openai') {
-        headers['Authorization'] = `Bearer ${settings.apiKey}`;
-    } else if (settings.provider === 'anthropic') {
-        headers['x-api-key'] = settings.apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-        headers['anthropic-dangerous-direct-browser-access'] = 'true';
-    }
-    
-    return headers;
 };
 
 // --- API Functions ---
@@ -95,88 +44,85 @@ export const fetchModels = async (): Promise<string[]> => {
     const settings = getApiSettings();
     if (!settings) return [];
 
-    const url = getFetchModelsUrl(settings);
-    if (!url) {
-        // Fallback for Anthropic
-        if (settings.provider === 'anthropic') {
-            return ['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'];
+    const baseUrl = normalizeUrl(settings.baseUrl);
+    
+    // Google Native Path
+    if (settings.provider === 'google') {
+        const url = `${baseUrl}/v1beta/models?key=${settings.apiKey}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) return [];
+            const data = await response.json();
+            return (data.models || [])
+                .map((m: any) => m.name.replace('models/', ''))
+                .filter((n: string) => n.includes('gemini'))
+                .sort();
+        } catch (e) {
+            console.warn("Google fetch models failed", e);
+            return [];
         }
-        return []; 
     }
 
+    // OpenAI / OneAPI Path
+    // Standard: GET /models
+    const url = `${baseUrl}/models`;
     try {
         const response = await fetch(url, {
             method: 'GET',
-            headers: getHeaders(settings)
+            headers: { 'Authorization': `Bearer ${settings.apiKey}` }
         });
         
         if (!response.ok) {
-            console.warn("Failed to fetch models list, falling back to defaults.");
+            console.warn(`Fetch models failed: ${response.status}`);
             return [];
         }
+
         const data = await response.json();
         
-        if (settings.provider === 'google' && data.models) {
-            return data.models
-                .map((m: any) => m.name.replace('models/', ''))
-                .filter((n: string) => n.includes('gemini'))
-                .sort((a: string, b: string) => b.localeCompare(a));
-        } else if (settings.provider === 'openai') {
-             // Handle generic OpenAI compatible responses
-             let modelList: any[] = [];
-             
-             // Standard response: { object: "list", data: [...] }
-             if (data.data && Array.isArray(data.data)) {
-                 modelList = data.data;
-             } 
-             // Non-standard array response
-             else if (Array.isArray(data)) {
-                 modelList = data;
-             }
+        // Handle various response formats from different proxies
+        // Standard: { data: [{ id: "..." }, ...] }
+        // Some: { models: [...] }
+        // Some: [...]
+        let list: any[] = [];
+        if (Array.isArray(data.data)) list = data.data;
+        else if (Array.isArray(data.models)) list = data.models;
+        else if (Array.isArray(data)) list = data;
 
-             return modelList
-                .map((m: any) => m.id)
-                .filter((id: any) => typeof id === 'string')
-                .sort();
-        }
-        return [];
+        return list
+            .map((item: any) => item.id || item.name) // prioritize ID
+            .filter((id: any) => typeof id === 'string')
+            .sort();
+            
     } catch (e) {
-        console.warn("Error fetching models:", e);
+        console.warn("OpenAI/OneAPI fetch models failed", e);
         return [];
     }
 };
 
 export const testConnection = async (apiKey: string, baseUrl: string, provider: AiProvider): Promise<boolean> => {
-    const settings: ApiSettings = { apiKey, baseUrl, provider };
-    
-    try {
-        if (provider === 'anthropic') {
-             const url = getGenerateUrl(settings, 'claude-3-haiku-20240307');
-             const response = await fetch(url, {
-                 method: 'POST',
-                 headers: getHeaders(settings),
-                 body: JSON.stringify({
-                     model: 'claude-3-haiku-20240307',
-                     max_tokens: 1,
-                     messages: [{ role: 'user', content: 'Hi' }]
-                 })
-             });
-             if (!response.ok) {
-                const err = await response.json().catch(() => ({}));
-                throw new Error(err.error?.message || `HTTP ${response.status}`);
-             }
-             return true;
-        } else {
-            const url = getFetchModelsUrl(settings);
-            if (!url) return true; 
+    const cleanBase = normalizeUrl(baseUrl);
 
-            const response = await fetch(url, { method: 'GET', headers: getHeaders(settings) });
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({}));
-                throw new Error(err.error?.message || `HTTP ${response.status}`);
-            }
-            return true;
+    try {
+        if (provider === 'google') {
+             const url = `${cleanBase}/v1beta/models?key=${apiKey}`;
+             const res = await fetch(url);
+             if (!res.ok) throw new Error(`HTTP ${res.status}`);
+             return true;
         }
+
+        // For OpenAI/OneAPI, we test by fetching models as per the example
+        const url = `${cleanBase}/models`;
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `HTTP ${res.status}`);
+        }
+        return true;
+
     } catch (error) {
         console.error("Connection Test Failed:", error);
         throw error;
@@ -193,99 +139,36 @@ const withRetry = async <T>(
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
     try {
       return await operation();
     } catch (error: any) {
       lastError = error;
-      if (error.name === 'AbortError' || signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
       const msg = (error.message || '').toLowerCase();
       const code = error.status || 0;
-      
-      const isRetryable = 
-        code === 429 || code >= 500 || 
-        msg.includes('fetch failed') || 
-        msg.includes('networkerror') ||
-        msg.includes('overloaded');
-
+      const isRetryable = code === 429 || code >= 500 || msg.includes('fetch failed') || msg.includes('networkerror');
       if (!isRetryable || attempt === maxRetries - 1) throw error;
-
-      let delay = baseDelay * Math.pow(2, attempt);
-      if (code === 429) delay += 3000;
-
-      await new Promise((resolve, reject) => {
-          const timeout = setTimeout(resolve, delay);
-          if (signal) {
-              signal.addEventListener('abort', () => {
-                  clearTimeout(timeout);
-                  reject(new DOMException('Aborted', 'AbortError'));
-              }, { once: true });
-          }
-      });
+      await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
     }
   }
   throw lastError;
 };
 
-const getErrorDetails = (error: any) => {
-    if (error.name === 'AbortError') {
-        return { title: '已停止', desc: '用户手动停止了任务。', tips: [] };
-    }
-
-    const msg = (error.message || '').toLowerCase();
-    
-    if (msg.includes('api key') || msg.includes('401') || msg.includes('403') || msg.includes('invalid')) {
-        return {
-            title: '鉴权失败 (Auth Error)',
-            desc: 'API Key 无效或无权访问该模型。',
-            tips: ['请检查 API Key 是否正确。', 'Anthropic 需要开启 direct browser access。']
-        };
-    }
-    if (msg.includes('404')) {
-        return {
-            title: '模型或路径不存在',
-            desc: '请求的 URL 或模型名称无效。',
-            tips: ['检查 Base URL 设置。', 'OpenAI 兼容接口通常以 /v1 结尾。']
-        };
-    }
-    if (msg.includes('429') || msg.includes('quota')) {
-        return {
-            title: '配额耗尽 (Quota Exceeded)',
-            desc: '请求过于频繁或配额已用完。',
-            tips: ['请稍后重试。', '检查您的 API 账户余额。']
-        };
-    }
-    if (msg.includes('fetch failed') || msg.includes('network')) {
-        return {
-            title: '网络连接失败',
-            desc: '无法连接到 API 服务器。',
-            tips: ['请检查网络或代理设置。', '确认 Base URL 是否可访问。']
-        };
-    }
-
-    return {
-        title: '处理异常',
-        desc: '发生了一个错误。',
-        tips: [`Error: ${msg.slice(0, 100)}`]
-    };
-};
-
 const cleanGeminiOutput = (text: string, pageNumber: number): string => {
+    // Remove markdown code blocks if present
     let cleaned = text.replace(/```html/gi, '').replace(/```/g, '').trim();
 
+    // Try to find the start of the valid HTML structure
     const startTag = '<div class="page-review"';
     const startIndex = cleaned.indexOf(startTag);
     if (startIndex !== -1) {
         cleaned = cleaned.substring(startIndex);
-    } else {
-        cleaned = cleaned.replace(/^tool_code[\s\S]*?\n/gm, ''); 
-        cleaned = cleaned.replace(/^thought\s[\s\S]*?$/gim, ''); 
-    }
+    } 
 
+    // Basic cleaning of markdown bold/strikethrough if the model returned markdown instead of HTML tags
     cleaned = cleaned.replace(/~~(.*?)~~/g, '<del>$1</del>');
     cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '<ins>$1</ins>');
 
+    // Fallback wrapper if strictly formatted HTML is missing
     if (!cleaned.includes('<div class="page-review"')) {
         const contentAsHtml = cleaned
             .split('\n')
@@ -296,7 +179,7 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
         return `
         <div class="page-review" id="page-${pageNumber}">
             <div class="page-header">
-                 <h2 class="page-title">第 ${pageNumber} 页 (格式自动修复)</h2>
+                 <h2 class="page-title">PAGE ${pageNumber} (Auto-Formatted)</h2>
             </div>
             <div class="revision-document">
                 <div class="document-content">
@@ -314,47 +197,33 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
 export const extractLearningRule = async (
     originalAiText: string,
     userCorrectedText: string,
-    model: string = 'gemini-2.5-flash'
+    model: string
 ): Promise<string> => {
     const settings = getApiSettings();
-    if (!settings) return "User applied manual text style.";
+    if (!settings) return "Manual correction.";
+    
+    // Simple prompt for rule extraction
+    const prompt = `Task: Extract a specific rule based on the user's correction.\nOriginal: ${originalAiText.slice(0, 300)}\nCorrection: ${userCorrectedText.slice(0, 300)}\nRule:`;
 
-    const url = getGenerateUrl(settings, model);
-    const prompt = `Task: Extract a specific "Content Rule" based on the user's correction.\n[AI Original]: ${originalAiText.slice(0, 500)}...\n[User Corrected]: ${userCorrectedText.slice(0, 500)}...\nReturn ONLY the rule as a single concise sentence.`;
-
-    let body: any;
-    if (settings.provider === 'google') {
-        body = { contents: [{ parts: [{ text: prompt }] }] };
-    } else if (settings.provider === 'openai') {
-        body = {
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1
-        };
-    } else if (settings.provider === 'anthropic') {
-         body = {
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 100
-        };
-    }
-
+    // OpenAI Compatible Call
     try {
-        const response = await fetch(url, {
+        const url = `${normalizeUrl(settings.baseUrl)}/chat/completions`;
+        const res = await fetch(url, {
             method: 'POST',
-            headers: getHeaders(settings),
-            body: JSON.stringify(body)
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${settings.apiKey}`
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 100
+            })
         });
-        const data = await response.json();
-        
-        if (settings.provider === 'google') return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (settings.provider === 'openai') return data.choices?.[0]?.message?.content?.trim();
-        if (settings.provider === 'anthropic') return data.content?.[0]?.text?.trim();
-        
-        return "User applied manual text style.";
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim() || "Manual correction.";
     } catch (e) {
-        console.warn("Failed to learn rule", e);
-        return "User applied manual text style.";
+        return "Manual correction.";
     }
 };
 
@@ -362,7 +231,7 @@ export const analyzePageContent = async (
   imageBase64: string, 
   pageNumber: number,
   knowledgeBase: string = "",
-  model: string = 'gemini-3-pro-preview',
+  model: string = 'gpt-4o',
   enableSearch: boolean = true,
   enableSolutions: boolean = false,
   learnedRules: string[] = [],
@@ -370,35 +239,35 @@ export const analyzePageContent = async (
   signal?: AbortSignal
 ): Promise<string> => {
     const settings = getApiSettings();
-    if (!settings) throw new Error("API configuration missing. Please login.");
+    if (!settings) throw new Error("API configuration missing.");
 
-    const url = getGenerateUrl(settings, model);
+    const baseUrl = normalizeUrl(settings.baseUrl);
     const cleanModel = model.replace('models/', '');
 
+    // Image Prep
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
     const mimeType = imageBase64.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/jpeg';
 
+    // Prompt Construction
     let systemPrompt = SYSTEM_INSTRUCTION;
     if (knowledgeBase) systemPrompt += `\n\n=== 📚 Knowledge Base ===\n${knowledgeBase}`;
     if (learnedRules.length > 0) systemPrompt += `\n\n=== 🧠 Learned Rules ===\n${learnedRules.map((r,i)=>`${i+1}. ${r}`).join('\n')}`;
     
     if (settings.provider !== 'google' && enableSearch) {
-        systemPrompt += `\n\n(Note: External live search is unavailable for ${settings.provider}. Use internal knowledge.)`;
-    } else if (!enableSearch) {
-        systemPrompt += `\n\nExternal search disabled.`;
+        systemPrompt += `\n\n(Note: External live search is unavailable in this mode.)`;
     }
 
     let userPrompt = "";
     if (refinementContext) {
-        userPrompt = `**Correction Task**\nFeedback: "${refinementContext.feedback}"\nPrevious Content: ${refinementContext.previousHtml}\nTask: Regenerate Page ${pageNumber} HTML correcting issues.`;
+        userPrompt = `Correction Task:\nFeedback: "${refinementContext.feedback}"\nPrevious: ${refinementContext.previousHtml}\nRegenerate Page ${pageNumber} HTML.`;
     } else {
         userPrompt = `Review Page ${pageNumber}. Return valid HTML. ${enableSolutions ? 'Include math solutions.' : ''}`;
     }
 
-    let payload: any = {};
-
+    // Google Native Path
     if (settings.provider === 'google') {
-        payload = {
+        const url = `${baseUrl}/v1beta/models/${cleanModel}:generateContent?key=${settings.apiKey}`;
+        const payload = {
             contents: [{
                 role: 'user',
                 parts: [
@@ -407,128 +276,86 @@ export const analyzePageContent = async (
                 ]
             }],
             systemInstruction: { parts: [{ text: systemPrompt }] },
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-            ],
             generationConfig: { temperature: 0.2 }
         };
+        // @ts-ignore
         if (enableSearch) payload.tools = [{ googleSearch: {} }];
-    } 
-    else if (settings.provider === 'openai') {
-        payload = {
-            model: cleanModel,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { 
-                    role: 'user', 
-                    content: [
-                        { type: "text", text: userPrompt },
-                        { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
-                    ] 
-                }
-            ],
-            temperature: 0.2
-        };
-    } 
-    else if (settings.provider === 'anthropic') {
-        payload = {
-            model: cleanModel,
-            system: systemPrompt,
-            messages: [
-                { 
-                    role: 'user', 
-                    content: [
-                        { type: "image", source: { type: "base64", media_type: mimeType, data: base64Data } },
-                        { type: "text", text: userPrompt }
-                    ] 
-                }
-            ],
-            max_tokens: 4096, 
-            temperature: 0.2
-        };
+
+        const response = await withRetry(async () => {
+             const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal
+             });
+             if (!res.ok) throw new Error(`Google API Error: ${res.status}`);
+             return res.json();
+        }, 3, 2000, signal);
+
+        const text = response.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') || '';
+        return cleanGeminiOutput(text, pageNumber);
     }
 
-    const performRequest = async (currentEnableSearch: boolean) => {
-        if (settings.provider === 'google' && !currentEnableSearch && payload.tools) {
-            delete payload.tools;
-        }
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: getHeaders(settings),
-            body: JSON.stringify(payload),
-            signal
-        });
-
-        if (!response.ok) {
-            const errBody = await response.json().catch(() => ({}));
-            throw new Error(errBody.error?.message || JSON.stringify(errBody) || `HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        let text = '';
-        let grounding = null;
-
-        if (settings.provider === 'google') {
-            if (!data.candidates || data.candidates.length === 0) {
-                 if (data.promptFeedback?.blockReason) throw new Error(`Blocked: ${data.promptFeedback.blockReason}`);
-                 throw new Error("Empty response");
+    // OpenAI / OneAPI Path (The "Logic Kernel" replacement)
+    // Uses POST /chat/completions
+    const url = `${baseUrl}/chat/completions`;
+    
+    const payload = {
+        model: cleanModel,
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { 
+                role: 'user', 
+                content: [
+                    { type: "text", text: userPrompt },
+                    { 
+                        type: "image_url", 
+                        image_url: { 
+                            url: `data:${mimeType};base64,${base64Data}`,
+                            detail: "high" 
+                        } 
+                    }
+                ] 
             }
-            text = data.candidates[0].content?.parts?.map((p: any) => p.text).join('') || '';
-            grounding = data.candidates[0].groundingMetadata;
-        } else if (settings.provider === 'openai') {
-            text = data.choices?.[0]?.message?.content || '';
-        } else if (settings.provider === 'anthropic') {
-            text = data.content?.[0]?.text || '';
-        }
-
-        return { text, groundingMetadata: grounding, fallbackUsed: !currentEnableSearch && enableSearch && settings.provider === 'google' };
+        ],
+        temperature: 0.2,
+        stream: false 
     };
 
     try {
-        const responseData = await withRetry(async () => {
-            try {
-                return await performRequest(enableSearch);
-            } catch (error: any) {
-                if (signal?.aborted) throw error;
-                if (settings.provider === 'google' && enableSearch && !error.message?.includes('timed out')) {
-                    console.warn("Search failed, retrying without search...", error);
-                    return await performRequest(false);
-                }
-                throw error;
+        const data = await withRetry(async () => {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${settings.apiKey}`
+                },
+                body: JSON.stringify(payload),
+                signal
+            });
+            
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error?.message || `HTTP ${res.status}`);
             }
+            return res.json();
         }, 3, 2000, signal);
 
-        let htmlContent = cleanGeminiOutput(responseData.text, pageNumber);
-
-        if (responseData.fallbackUsed) {
-            const warningHtml = `<div class="review-section" style="background:#fffbeb;border-bottom:1px solid #fcd34d;"><div class="suggestion-item"><span class="tag tag-style" style="background:#fbbf24;color:#78350f;">⚠️ 搜索受限</span><span>自动切换至纯推理模式。</span></div></div>`;
-            const idx = htmlContent.indexOf('<div class="review-section"');
-            if (idx !== -1) htmlContent = htmlContent.slice(0, idx) + warningHtml + htmlContent.slice(idx);
-        }
-
-        return htmlContent;
+        const text = data.choices?.[0]?.message?.content || '';
+        return cleanGeminiOutput(text, pageNumber);
 
     } catch (error: any) {
         if (error.name === 'AbortError') throw error;
+        console.error("Analysis Failed:", error);
         
-        console.error("Fetch Error:", error);
-        const errorDetails = getErrorDetails(error);
-
         return `
         <div class="page-review error-card" id="page-${pageNumber}">
-            <div class="page-header">
-                <h2 class="page-title">PAGE ${pageNumber} - ⚠️ ${errorDetails.title}</h2>
-            </div>
+            <div class="page-header"><h2 class="page-title">PAGE ${pageNumber} - ERROR</h2></div>
             <div class="review-section">
                 <div class="suggestion-item">
-                    <span class="tag tag-error">处理失败</span>
-                    <span>${errorDetails.desc}</span>
+                    <span class="tag tag-error">Failed</span>
+                    <span>${error.message || "Unknown error"}</span>
                 </div>
-                 <p style="padding:15px; font-family:monospace; color:#991b1b; font-size: 0.8em;">Debug: ${(error as Error).message}</p>
             </div>
         </div>`;
     }

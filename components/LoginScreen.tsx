@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Key, Globe, ChevronRight, Eye, EyeOff, ShieldCheck, Sparkles, Server, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Key, Globe, ChevronRight, Eye, EyeOff, Sparkles, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ApiSettings, AiProvider } from '../types';
 import { testConnection } from '../services/geminiService';
 
@@ -10,7 +10,7 @@ interface LoginScreenProps {
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [apiKey, setApiKey] = useState('');
-    const [baseUrl, setBaseUrl] = useState('https://generativelanguage.googleapis.com');
+    const [baseUrl, setBaseUrl] = useState('');
     const [showKey, setShowKey] = useState(false);
     
     const [isTesting, setIsTesting] = useState(false);
@@ -20,98 +20,85 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     useEffect(() => {
         const storedKey = localStorage.getItem('mathedit_api_key');
         const storedUrl = localStorage.getItem('mathedit_base_url');
-        
         if (storedKey) setApiKey(storedKey);
+        // Default to a common OneAPI placeholder or empty if not set
         if (storedUrl) setBaseUrl(storedUrl);
     }, []);
 
-    // Auto-detect provider protocol based on URL pattern
-    const determineProvider = (url: string): AiProvider => {
-        const lower = url.toLowerCase().trim();
-        if (lower.includes('googleapis.com')) return 'google';
-        if (lower.includes('anthropic.com')) return 'anthropic';
-        // Default to 'openai' for all compatible proxies (OneAPI, DeepSeek, etc.)
-        return 'openai';
+    const detectProvider = (url: string): AiProvider => {
+        if (url.includes('googleapis.com')) return 'google';
+        return 'openai'; // Default to OpenAI compatible for everything else
     };
 
-    const handleTest = async () => {
+    const handleTestAndConnect = async (e?: React.FormEvent) => {
+        e?.preventDefault();
         if (!apiKey.trim()) return;
         
+        let urlToUse = baseUrl.trim();
+        // If empty, assume OpenAI default, though usually users have custom proxies
+        if (!urlToUse) urlToUse = 'https://api.openai.com/v1';
+
         setIsTesting(true);
         setTestStatus('idle');
         setTestMessage('');
         
-        const provider = determineProvider(baseUrl);
+        const provider = detectProvider(urlToUse);
 
         try {
-            await testConnection(apiKey.trim(), baseUrl.trim(), provider);
+            await testConnection(apiKey.trim(), urlToUse, provider);
             setTestStatus('success');
-            setTestMessage(`连接成功! 协议: ${provider === 'openai' ? 'OpenAI Compatible' : provider}`);
+            setTestMessage('验证成功! 模型列表已获取。');
+            
+            // Proceed to login after short delay
+            setTimeout(() => {
+                onLogin({ apiKey: apiKey.trim(), baseUrl: urlToUse, provider });
+            }, 800);
+
         } catch (error: any) {
             setTestStatus('error');
-            let msg = error.message || '连接失败，请检查配置。';
-            
-            if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('key')) {
-                msg = 'API Key 无效或无权访问。';
-            } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-                msg = '网络连接失败。请检查 Base URL 或网络设置。';
-            } else if (msg.includes('404')) {
-                msg = '接口地址 (404) 错误。Base URL 可能配置有误。';
-            }
-            
-            setTestMessage(msg);
+            setTestMessage(error.message || '连接失败，请检查 Base URL 和 Key');
         } finally {
             setIsTesting(false);
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (apiKey.trim()) {
-            const provider = determineProvider(baseUrl);
-            onLogin({ apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), provider });
-        }
-    };
-
     return (
-        <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
-            <div className="w-full max-w-[420px] animate-fade-in-up">
-                <div className="mb-8 text-center">
-                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-xl shadow-slate-200 mb-6">
-                        <Sparkles className="w-7 h-7" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">MathEdit AI</h1>
-                    <p className="text-slate-500 text-sm">配置 API 连接参数</p>
+        <div className="min-h-screen bg-[#f4f6f8] flex flex-col items-center justify-center p-4 font-sans text-slate-900">
+            <div className="w-full max-w-[480px] bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden animate-fade-in-up">
+                
+                <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-blue-600" />
+                        配置 /v1 连接
+                    </h2>
+                    <span className="text-xs font-mono text-slate-400 bg-slate-50 px-2 py-1 rounded">OpenAI Mode</span>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    
-                    <div className="space-y-3">
-                        <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Globe className="w-3.5 h-3.5" /> 接口地址 (Base URL)
+                <div className="p-8 flex flex-col gap-6">
+                    <div className="space-y-2">
+                        <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <Globe className="w-4 h-4 text-slate-400" /> 
+                            API 地址 (Base URL)
                         </label>
-                        
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={baseUrl}
-                                onChange={(e) => {
-                                    setBaseUrl(e.target.value);
-                                    setTestStatus('idle');
-                                }}
-                                placeholder="https://..."
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800 placeholder-slate-300"
-                            />
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                            系统将自动识别协议 (Google/Anthropic/OpenAI Compatible)。<br/>
-                            如使用 OneAPI/DeepSeek 等，请输入完整 Base URL。
+                        <input 
+                            type="text" 
+                            value={baseUrl}
+                            onChange={(e) => {
+                                setBaseUrl(e.target.value);
+                                setTestStatus('idle');
+                            }}
+                            placeholder="http://your-oneapi-domain.com/v1" 
+                            className="w-full p-3 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        />
+                         <p className="text-[10px] text-slate-400">
+                            请输入完整的 API 地址（例如以 /v1 结尾）。适配 OneAPI, NewAPI 等中转。
                         </p>
                     </div>
 
-                    <div className="space-y-3">
-                        <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Key className="w-3.5 h-3.5" /> API Key
+                    <div className="space-y-2">
+                        <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <Key className="w-4 h-4 text-slate-400" />
+                            API Key (令牌)
                         </label>
                         <div className="relative">
                             <input
@@ -119,11 +106,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                 value={apiKey}
                                 onChange={(e) => {
                                     setApiKey(e.target.value);
-                                    setTestStatus('idle'); 
+                                    setTestStatus('idle');
                                 }}
                                 placeholder="sk-..."
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
-                                required
+                                className="w-full p-3 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                             />
                             <button
                                 type="button"
@@ -140,41 +126,33 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                              testStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
                          }`}>
                              {testStatus === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
-                             <span className="break-all">{testMessage}</span>
+                             <span className="break-all font-medium">{testMessage}</span>
                          </div>
                     )}
 
-                    <div className="grid grid-cols-3 gap-3 pt-2">
-                         <button
-                            type="button"
-                            onClick={handleTest}
-                            disabled={!apiKey || isTesting}
-                            className="col-span-1 flex items-center justify-center gap-2 py-3.5 rounded-lg font-bold text-sm transition-all border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-50"
-                        >
-                            {isTesting ? <div className="w-4 h-4 border-2 border-slate-400 border-t-slate-600 rounded-full animate-spin"></div> : <Zap className="w-4 h-4" />}
-                            Test
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={!apiKey}
-                            className={`col-span-2 flex items-center justify-center gap-2 py-3.5 rounded-lg font-bold text-sm shadow-lg transition-all transform active:scale-[0.98] ${
-                                apiKey 
-                                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200' 
-                                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                            }`}
-                        >
-                            连接并获取模型
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
-                    </div>
-                </form>
-
-                <div className="mt-10 flex justify-center gap-4 text-xs text-slate-400">
-                    <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> 本地存储配置</span>
-                    <span className="w-px h-3 bg-slate-200 my-auto"></span>
-                    <span className="flex items-center gap-1"><Server className="w-3 h-3"/> 直连服务器</span>
+                    <button 
+                        onClick={() => handleTestAndConnect()}
+                        disabled={!apiKey || isTesting}
+                        className={`w-full py-3.5 rounded-lg font-bold text-sm text-white shadow-lg transition-all flex items-center justify-center gap-2 ${
+                            !apiKey || isTesting 
+                            ? 'bg-slate-300 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700 hover:shadow-blue-200 active:scale-[0.98]'
+                        }`}
+                    >
+                         {isTesting ? (
+                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                         ) : (
+                             <Zap className="w-4 h-4" />
+                         )}
+                         {isTesting ? '正在验证...' : '验证并获取模型'}
+                    </button>
                 </div>
             </div>
+            
+            <p className="mt-8 text-xs text-slate-400 text-center max-w-sm">
+                Supported protocols: OpenAI Standard (v1/chat/completions).<br/>
+                Fully compatible with DeepSeek, Moonshot, OneAPI, etc.
+            </p>
         </div>
     );
 };

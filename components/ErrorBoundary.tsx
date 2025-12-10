@@ -1,4 +1,4 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Copy } from 'lucide-react';
 
 interface Props {
@@ -11,8 +11,7 @@ interface State {
   errorInfo: ErrorInfo | null;
 }
 
-// Fix: Use React.Component explicit inheritance to resolve type errors with setState and props
-class ErrorBoundary extends React.Component<Props, State> {
+class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = {
@@ -28,7 +27,6 @@ class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
-    // Fix: setState is now correctly typed from React.Component
     this.setState({ errorInfo });
   }
 
@@ -94,7 +92,6 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    // Fix: this.props is now correctly available
     return this.props.children;
   }
 }
