@@ -8,16 +8,6 @@ interface LoginScreenProps {
     onLogin: (settings: ApiSettings) => void;
 }
 
-// Quick presets for convenience, filling the Base URL input
-const PRESETS = [
-    { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com' },
-    { name: 'OpenAI', url: 'https://api.openai.com/v1' },
-    { name: 'xAI (Grok)', url: 'https://api.x.ai/v1' },
-    { name: 'DeepSeek', url: 'https://api.deepseek.com' },
-    { name: 'SiliconFlow', url: 'https://api.siliconflow.cn/v1' },
-    { name: 'OneAPI / Other', url: '' } 
-];
-
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [apiKey, setApiKey] = useState('');
     const [baseUrl, setBaseUrl] = useState('https://generativelanguage.googleapis.com');
@@ -42,11 +32,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         if (lower.includes('anthropic.com')) return 'anthropic';
         // Default to 'openai' for all compatible proxies (OneAPI, DeepSeek, etc.)
         return 'openai';
-    };
-
-    const handlePresetClick = (url: string) => {
-        setBaseUrl(url);
-        setTestStatus('idle');
     };
 
     const handleTest = async () => {
@@ -106,23 +91,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                             <Globe className="w-3.5 h-3.5" /> 接口地址 (Base URL)
                         </label>
                         
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            {PRESETS.map((preset) => (
-                                <button
-                                    key={preset.name}
-                                    type="button"
-                                    onClick={() => handlePresetClick(preset.url)}
-                                    className={`px-2.5 py-1.5 text-[11px] font-bold rounded border transition-colors ${
-                                        baseUrl === preset.url && preset.url !== ''
-                                        ? 'bg-slate-800 text-white border-slate-800' 
-                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                    }`}
-                                >
-                                    {preset.name}
-                                </button>
-                            ))}
-                        </div>
-
                         <div className="relative">
                             <input
                                 type="text"
@@ -131,10 +99,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     setBaseUrl(e.target.value);
                                     setTestStatus('idle');
                                 }}
-                                placeholder="https://api.openai.com/v1"
+                                placeholder="https://..."
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800 placeholder-slate-300"
                             />
                         </div>
+                        <p className="text-[10px] text-slate-400">
+                            系统将自动识别协议 (Google/Anthropic/OpenAI Compatible)。<br/>
+                            如使用 OneAPI/DeepSeek 等，请输入完整 Base URL。
+                        </p>
                     </div>
 
                     <div className="space-y-3">

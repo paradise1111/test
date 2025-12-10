@@ -109,25 +109,13 @@ const HistoryItem: React.FC<{
     );
 };
 
-const PROVIDER_DEFAULTS: Record<AiProvider, string[]> = {
+const PROVIDER_DEFAULTS: Record<string, string[]> = {
     google: [
         'gemini-2.5-flash',
         'gemini-2.0-flash-exp',
         'gemini-1.5-pro-latest'
-    ],
-    openai: [
-        'gpt-4o',
-        'gpt-4o-mini',
-        'grok-beta',
-        'deepseek-chat',
-        'deepseek-reasoner',
-        'claude-3-5-sonnet-20240620'
-    ],
-    anthropic: [
-        'claude-3-5-sonnet-20240620',
-        'claude-3-opus-20240229',
-        'claude-3-haiku-20240307'
     ]
+    // Removed defaults for openai/anthropic to force manual input if fetch fails
 };
 
 function App() {
@@ -147,7 +135,7 @@ function App() {
   const [history, setHistory] = useState<ReportRecord[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [selectedModel, setSelectedModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [provider, setProvider] = useState<AiProvider>('google');
   
@@ -167,19 +155,30 @@ function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadModelsForProvider = async (currentProvider: AiProvider) => {
-    const models = await fetchModels();
-    
-    if (models.length > 0) {
-        setAvailableModels(models);
-        if (!models.includes(selectedModel)) {
-            setSelectedModel(models[0]);
+    try {
+        const models = await fetchModels();
+        if (models.length > 0) {
+            setAvailableModels(models);
+            if (!models.includes(selectedModel)) {
+                setSelectedModel(models[0]);
+            }
+        } else {
+            // If fetch fails or returns empty:
+            setAvailableModels([]);
+            
+            // For Google, we can safely use defaults
+            if (currentProvider === 'google') {
+                setAvailableModels(PROVIDER_DEFAULTS.google);
+                setSelectedModel(PROVIDER_DEFAULTS.google[0]);
+            } else {
+                // For Custom/OpenAI, do NOT force 'gpt-4o'. Let user type.
+                // Reset selected model to empty or keep previous if valid
+                if (!selectedModel) setSelectedModel('');
+            }
         }
-    } else {
-        const defaults = PROVIDER_DEFAULTS[currentProvider] || PROVIDER_DEFAULTS.google;
-        setAvailableModels(defaults);
-        if (!defaults.includes(selectedModel)) {
-            setSelectedModel(defaults[0]);
-        }
+    } catch (e) {
+        console.error("Error loading models", e);
+        setAvailableModels([]);
     }
   };
 
@@ -683,7 +682,7 @@ function App() {
                     <div className="text-center space-y-6 py-8">
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold mb-2">
                              <Sparkles className="w-4 h-4" /> 
-                             {selectedModel} ({provider === 'google' ? 'Google' : provider === 'openai' ? 'OpenAI/Compatible' : 'Anthropic'})
+                             {selectedModel || '手动输入模式'} ({provider === 'google' ? 'Google' : 'Custom Provider'})
                         </div>
                         <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                             重新定义 <span className="text-blue-600">数学出版</span> 审阅流程
@@ -806,21 +805,35 @@ function App() {
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">选择模型 (Select Model)</label>
                                             <div className="relative">
-                                                <select
-                                                    value={selectedModel}
-                                                    onChange={(e) => setSelectedModel(e.target.value)}
-                                                    className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8 font-medium"
-                                                >
-                                                    {availableModels.map(model => (
-                                                        <option key={model} value={model}>{model}</option>
-                                                    ))}
-                                                </select>
-                                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
-                                                    <ChevronDown className="h-4 w-4" />
-                                                </div>
+                                                {availableModels.length > 0 ? (
+                                                    <>
+                                                        <select
+                                                            value={selectedModel}
+                                                            onChange={(e) => setSelectedModel(e.target.value)}
+                                                            className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8 font-medium"
+                                                        >
+                                                            {availableModels.map(model => (
+                                                                <option key={model} value={model}>{model}</option>
+                                                            ))}
+                                                        </select>
+                                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                                                            <ChevronDown className="h-4 w-4" />
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <input 
+                                                        type="text"
+                                                        value={selectedModel}
+                                                        onChange={(e) => setSelectedModel(e.target.value)}
+                                                        placeholder="未自动获取到模型列表，请手动输入 (如: deepseek-chat)"
+                                                        className="w-full bg-slate-50 border border-yellow-300 text-slate-900 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block p-2.5 font-medium placeholder-slate-400"
+                                                    />
+                                                )}
                                             </div>
                                             <p className="text-[10px] text-slate-400">
-                                                {availableModels.length > 0 ? "列表已从服务器获取 (或使用厂商默认配置)。" : "正在加载模型列表..."}
+                                                {availableModels.length > 0 
+                                                    ? "列表已从服务器获取。" 
+                                                    : "⚠️ 无法自动获取模型列表（可能是 CORS 或接口路径问题），请手动输入模型名称。"}
                                             </p>
                                         </div>
                                     </div>
