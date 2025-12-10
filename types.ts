@@ -29,7 +29,10 @@ export interface ReportRecord {
   pageOffset: number;
 }
 
+export type AiProvider = 'google' | 'openai' | 'anthropic';
+
 export interface ApiSettings {
   apiKey: string;
   baseUrl: string;
+  provider: AiProvider;
 }

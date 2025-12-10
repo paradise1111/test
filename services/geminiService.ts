@@ -1,30 +1,38 @@
 
-
-
 import { SYSTEM_INSTRUCTION } from '../constants';
-import { ApiSettings } from '../types';
+import { ApiSettings, AiProvider } from '../types';
 
 // Native Fetch Implementation - No SDK Dependency
 
 export const saveApiSettings = (settings: ApiSettings) => {
     localStorage.setItem('mathedit_api_key', settings.apiKey);
     localStorage.setItem('mathedit_base_url', settings.baseUrl);
+    localStorage.setItem('mathedit_provider', settings.provider);
 };
 
 export const getApiSettings = (): ApiSettings | null => {
     const apiKey = localStorage.getItem('mathedit_api_key');
-    let baseUrl = localStorage.getItem('mathedit_base_url') || 'https://generativelanguage.googleapis.com';
+    let baseUrl = localStorage.getItem('mathedit_base_url');
+    const provider = (localStorage.getItem('mathedit_provider') as AiProvider) || 'google';
     
-    if (!apiKey && process.env.API_KEY) {
-        return { apiKey: process.env.API_KEY, baseUrl };
+    // Set default base URLs if missing
+    if (!baseUrl) {
+        if (provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com';
+        else if (provider === 'openai') baseUrl = 'https://api.openai.com/v1';
+        else if (provider === 'anthropic') baseUrl = 'https://api.anthropic.com';
+    }
+    
+    if (!apiKey && process.env.API_KEY && provider === 'google') {
+        return { apiKey: process.env.API_KEY, baseUrl: baseUrl!, provider };
     }
 
     if (!apiKey) return null;
-    return { apiKey, baseUrl };
+    return { apiKey, baseUrl: baseUrl!, provider };
 };
 
 export const clearApiSettings = () => {
     localStorage.removeItem('mathedit_api_key');
+    // We keep the provider/url preference for convenience
 };
 
 const normalizeUrl = (url: string) => {
@@ -33,29 +41,90 @@ const normalizeUrl = (url: string) => {
     return clean;
 };
 
+// --- Provider Specific Logic ---
+
+const getFetchModelsUrl = (settings: ApiSettings) => {
+    const base = normalizeUrl(settings.baseUrl);
+    switch (settings.provider) {
+        case 'google':
+            return `${base}/v1beta/models?key=${settings.apiKey}`;
+        case 'openai':
+            return `${base}/models`;
+        case 'anthropic':
+            // Anthropic doesn't have a public public list models endpoint that is standard
+            // We return null to indicate usage of static list
+            return null;
+        default:
+            return `${base}/models`;
+    }
+};
+
+const getGenerateUrl = (settings: ApiSettings, model: string) => {
+    const base = normalizeUrl(settings.baseUrl);
+    const cleanModel = model.replace('models/', '');
+    
+    switch (settings.provider) {
+        case 'google':
+            return `${base}/v1beta/models/${cleanModel}:generateContent?key=${settings.apiKey}`;
+        case 'openai':
+            return `${base}/chat/completions`;
+        case 'anthropic':
+            return `${base}/v1/messages`;
+    }
+};
+
+const getHeaders = (settings: ApiSettings) => {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
+    
+    if (settings.provider === 'openai') {
+        headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    } else if (settings.provider === 'anthropic') {
+        headers['x-api-key'] = settings.apiKey;
+        headers['anthropic-version'] = '2023-06-01';
+        headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    }
+    
+    return headers;
+};
+
 // --- API Functions ---
 
 export const fetchModels = async (): Promise<string[]> => {
     const settings = getApiSettings();
     if (!settings) return [];
 
-    const baseUrl = normalizeUrl(settings.baseUrl);
-    // Use v1beta endpoint to list models
-    const url = `${baseUrl}/v1beta/models?key=${settings.apiKey}`;
+    const url = getFetchModelsUrl(settings);
+    if (!url) {
+        // Fallback for providers without model listing (like standard Anthropic or restricted proxies)
+        if (settings.provider === 'anthropic') {
+            return ['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'];
+        }
+        return []; 
+    }
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: getHeaders(settings)
+        });
+        
         if (!response.ok) {
             console.warn("Failed to fetch models list, falling back to defaults.");
             return [];
         }
         const data = await response.json();
-        if (data.models && Array.isArray(data.models)) {
+        
+        if (settings.provider === 'google' && data.models) {
             return data.models
                 .map((m: any) => m.name.replace('models/', ''))
-                // Prioritize displaying gemini models
                 .filter((n: string) => n.includes('gemini'))
                 .sort((a: string, b: string) => b.localeCompare(a));
+        } else if (settings.provider === 'openai' && data.data) {
+             return data.data
+                .map((m: any) => m.id)
+                .sort();
         }
         return [];
     } catch (e) {
@@ -64,18 +133,41 @@ export const fetchModels = async (): Promise<string[]> => {
     }
 };
 
-export const testConnection = async (apiKey: string, baseUrl: string): Promise<boolean> => {
-    const cleanUrl = normalizeUrl(baseUrl);
-    // Lightweight check: List models
-    const url = `${cleanUrl}/v1beta/models?key=${apiKey}`;
+export const testConnection = async (apiKey: string, baseUrl: string, provider: AiProvider): Promise<boolean> => {
+    // For test, we use a simple call. 
+    // Google: list models. OpenAI: list models. Anthropic: simple message (since list models isn't standard)
+    
+    const settings: ApiSettings = { apiKey, baseUrl, provider };
     
     try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error?.message || `HTTP Error ${response.status}`);
+        if (provider === 'anthropic') {
+             // Test Anthropic with a dummy message
+             const url = getGenerateUrl(settings, 'claude-3-haiku-20240307');
+             const response = await fetch(url, {
+                 method: 'POST',
+                 headers: getHeaders(settings),
+                 body: JSON.stringify({
+                     model: 'claude-3-haiku-20240307',
+                     max_tokens: 1,
+                     messages: [{ role: 'user', content: 'Hi' }]
+                 })
+             });
+             if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error?.message || `HTTP ${response.status}`);
+             }
+             return true;
+        } else {
+            const url = getFetchModelsUrl(settings);
+            if (!url) return true; // Should not happen for google/openai
+
+            const response = await fetch(url, { method: 'GET', headers: getHeaders(settings) });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error?.message || `HTTP ${response.status}`);
+            }
+            return true;
         }
-        return true;
     } catch (error) {
         console.error("Connection Test Failed:", error);
         throw error;
@@ -134,18 +226,25 @@ const getErrorDetails = (error: any) => {
 
     const msg = (error.message || '').toLowerCase();
     
-    if (msg.includes('api key') || msg.includes('400') || msg.includes('invalid')) {
+    if (msg.includes('api key') || msg.includes('401') || msg.includes('403') || msg.includes('invalid')) {
         return {
-            title: '配置错误 (Invalid Request)',
-            desc: 'API Key 无效或请求参数错误。',
-            tips: ['请检查 API Key 是否正确。', '检查 Base URL 是否正确。']
+            title: '鉴权失败 (Auth Error)',
+            desc: 'API Key 无效或无权访问该模型。',
+            tips: ['请检查 API Key 是否正确。', 'Anthropic 需要开启 direct browser access。']
+        };
+    }
+    if (msg.includes('404')) {
+        return {
+            title: '模型或路径不存在',
+            desc: '请求的 URL 或模型名称无效。',
+            tips: ['检查 Base URL 设置。', 'OpenAI 兼容接口通常以 /v1 结尾。']
         };
     }
     if (msg.includes('429') || msg.includes('quota')) {
         return {
             title: '配额耗尽 (Quota Exceeded)',
             desc: '请求过于频繁或配额已用完。',
-            tips: ['请稍后重试。', '尝试切换到 Flash 模型（配额较高）。']
+            tips: ['请稍后重试。', '检查您的 API 账户余额。']
         };
     }
     if (msg.includes('fetch failed') || msg.includes('network')) {
@@ -176,9 +275,7 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
     }
 
     // Convert Markdown trackers to HTML tags for visualization
-    // ~~deleted~~ -> <del>deleted</del>
     cleaned = cleaned.replace(/~~(.*?)~~/g, '<del>$1</del>');
-    // **added** -> <ins>added</ins>
     cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '<ins>$1</ins>');
 
     if (!cleaned.includes('<div class="page-review"')) {
@@ -204,6 +301,8 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
     return cleaned;
 };
 
+// --- Main Analysis Logic ---
+
 export const extractLearningRule = async (
     originalAiText: string,
     userCorrectedText: string,
@@ -212,26 +311,39 @@ export const extractLearningRule = async (
     const settings = getApiSettings();
     if (!settings) return "User applied manual text style.";
 
-    const baseUrl = normalizeUrl(settings.baseUrl);
-    const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${settings.apiKey}`;
+    const url = getGenerateUrl(settings, model);
+    const prompt = `Task: Extract a specific "Content Rule" based on the user's correction.\n[AI Original]: ${originalAiText.slice(0, 500)}...\n[User Corrected]: ${userCorrectedText.slice(0, 500)}...\nReturn ONLY the rule as a single concise sentence.`;
 
-    const prompt = `
-    Task: Extract a specific "Content Rule" based on the user's correction.
-    [AI Original]: ${originalAiText.slice(0, 500)}...
-    [User Corrected]: ${userCorrectedText.slice(0, 500)}...
-    Return ONLY the rule as a single concise sentence.
-    `;
+    let body: any;
+    if (settings.provider === 'google') {
+        body = { contents: [{ parts: [{ text: prompt }] }] };
+    } else if (settings.provider === 'openai') {
+        body = {
+            model: model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1
+        };
+    } else if (settings.provider === 'anthropic') {
+         body = {
+            model: model,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 100
+        };
+    }
 
     try {
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-            })
+            headers: getHeaders(settings),
+            body: JSON.stringify(body)
         });
         const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "User prefers manual corrections.";
+        
+        if (settings.provider === 'google') return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (settings.provider === 'openai') return data.choices?.[0]?.message?.content?.trim();
+        if (settings.provider === 'anthropic') return data.content?.[0]?.text?.trim();
+        
+        return "User applied manual text style.";
     } catch (e) {
         console.warn("Failed to learn rule", e);
         return "User applied manual text style.";
@@ -252,17 +364,24 @@ export const analyzePageContent = async (
     const settings = getApiSettings();
     if (!settings) throw new Error("API configuration missing. Please login.");
 
-    const baseUrl = normalizeUrl(settings.baseUrl);
+    const url = getGenerateUrl(settings, model);
     const cleanModel = model.replace('models/', '');
-    // Using v1beta for widest compatibility with tools
-    const url = `${baseUrl}/v1beta/models/${cleanModel}:generateContent?key=${settings.apiKey}`;
 
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const mimeType = imageBase64.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/jpeg';
 
     let systemPrompt = SYSTEM_INSTRUCTION;
     if (knowledgeBase) systemPrompt += `\n\n=== 📚 Knowledge Base ===\n${knowledgeBase}`;
     if (learnedRules.length > 0) systemPrompt += `\n\n=== 🧠 Learned Rules ===\n${learnedRules.map((r,i)=>`${i+1}. ${r}`).join('\n')}`;
-    if (!enableSearch) systemPrompt += `\n\nExternal search disabled.`;
+    
+    // Search is only supported on Google via tool use natively in this app structure.
+    // For others, we assume the model has internal knowledge or user disabled it.
+    if (settings.provider !== 'google' && enableSearch) {
+        // Soft warning in prompt, as we can't inject the tool
+        systemPrompt += `\n\n(Note: External live search is unavailable for ${settings.provider}. Use internal knowledge.)`;
+    } else if (!enableSearch) {
+        systemPrompt += `\n\nExternal search disabled.`;
+    }
 
     let userPrompt = "";
     if (refinementContext) {
@@ -271,62 +390,100 @@ export const analyzePageContent = async (
         userPrompt = `Review Page ${pageNumber}. Return valid HTML. ${enableSolutions ? 'Include math solutions.' : ''}`;
     }
 
-    // Construct Payload
-    const payload: any = {
-        contents: [{
-            role: 'user',
-            parts: [
-                { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-                { text: userPrompt }
-            ]
-        }],
-        systemInstruction: {
-            parts: [{ text: systemPrompt }]
-        },
-        safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        ],
-        generationConfig: {
-            temperature: 0.2 // Low temperature for factual accuracy
-        }
-    };
+    // Construct Payload based on provider
+    let payload: any = {};
 
-    if (enableSearch) {
-        payload.tools = [{ googleSearch: {} }];
+    if (settings.provider === 'google') {
+        payload = {
+            contents: [{
+                role: 'user',
+                parts: [
+                    { inlineData: { mimeType: mimeType, data: base64Data } },
+                    { text: userPrompt }
+                ]
+            }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+            ],
+            generationConfig: { temperature: 0.2 }
+        };
+        if (enableSearch) payload.tools = [{ googleSearch: {} }];
+    } 
+    else if (settings.provider === 'openai') {
+        // OpenAI / Grok / DeepSeek format
+        payload = {
+            model: cleanModel,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { 
+                    role: 'user', 
+                    content: [
+                        { type: "text", text: userPrompt },
+                        { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+                    ] 
+                }
+            ],
+            temperature: 0.2
+        };
+    } 
+    else if (settings.provider === 'anthropic') {
+        payload = {
+            model: cleanModel,
+            system: systemPrompt,
+            messages: [
+                { 
+                    role: 'user', 
+                    content: [
+                        { type: "image", source: { type: "base64", media_type: mimeType, data: base64Data } },
+                        { type: "text", text: userPrompt }
+                    ] 
+                }
+            ],
+            max_tokens: 4096, // Anthropic requires max_tokens
+            temperature: 0.2
+        };
     }
 
     const performRequest = async (currentEnableSearch: boolean) => {
-        if (!currentEnableSearch && payload.tools) delete payload.tools;
+        // For Google, we might need to strip tools if retrying without search
+        if (settings.provider === 'google' && !currentEnableSearch && payload.tools) {
+            delete payload.tools;
+        }
 
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getHeaders(settings),
             body: JSON.stringify(payload),
             signal
         });
 
         if (!response.ok) {
             const errBody = await response.json().catch(() => ({}));
-            throw new Error(errBody.error?.message || `HTTP ${response.status} ${response.statusText}`);
+            throw new Error(errBody.error?.message || JSON.stringify(errBody) || `HTTP ${response.status}`);
         }
 
         const data = await response.json();
-        
-        // Handle potential empty responses or blocks
-        if (!data.candidates || data.candidates.length === 0) {
-            if (data.promptFeedback?.blockReason) {
-                throw new Error(`Blocked by AI Safety: ${data.promptFeedback.blockReason}`);
+        let text = '';
+        let grounding = null;
+
+        if (settings.provider === 'google') {
+            if (!data.candidates || data.candidates.length === 0) {
+                 if (data.promptFeedback?.blockReason) throw new Error(`Blocked: ${data.promptFeedback.blockReason}`);
+                 throw new Error("Empty response");
             }
-            throw new Error("AI returned empty response.");
+            text = data.candidates[0].content?.parts?.map((p: any) => p.text).join('') || '';
+            grounding = data.candidates[0].groundingMetadata;
+        } else if (settings.provider === 'openai') {
+            text = data.choices?.[0]?.message?.content || '';
+        } else if (settings.provider === 'anthropic') {
+            text = data.content?.[0]?.text || '';
         }
 
-        const text = data.candidates[0].content?.parts?.map((p: any) => p.text).join('') || '';
-        const grounding = data.candidates[0].groundingMetadata;
-
-        return { text, groundingMetadata: grounding, fallbackUsed: !currentEnableSearch && enableSearch };
+        return { text, groundingMetadata: grounding, fallbackUsed: !currentEnableSearch && enableSearch && settings.provider === 'google' };
     };
 
     try {
@@ -335,8 +492,8 @@ export const analyzePageContent = async (
                 return await performRequest(enableSearch);
             } catch (error: any) {
                 if (signal?.aborted) throw error;
-                // If search fails (e.g. 400 or quota), try without search
-                if (enableSearch && !error.message?.includes('timed out')) {
+                // Only retry Google search errors without search
+                if (settings.provider === 'google' && enableSearch && !error.message?.includes('timed out')) {
                     console.warn("Search failed, retrying without search...", error);
                     return await performRequest(false);
                 }
@@ -357,7 +514,7 @@ export const analyzePageContent = async (
     } catch (error: any) {
         if (error.name === 'AbortError') throw error;
         
-        console.error("Gemini Fetch Error:", error);
+        console.error("Fetch Error:", error);
         const errorDetails = getErrorDetails(error);
 
         return `

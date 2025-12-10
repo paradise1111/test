@@ -109,13 +109,20 @@ const HistoryItem: React.FC<{
     );
 };
 
-// Default models fallback
+// Mixed defaults to cover all bases if fetch fails
 const DEFAULT_MODELS = [
-    'gemini-2.0-flash-thinking-exp-01-21',
-    'gemini-2.0-pro-exp-02-05',
+    // Google
+    'gemini-2.5-flash',
     'gemini-2.0-flash-exp',
     'gemini-1.5-pro-latest',
-    'gemini-1.5-flash-latest'
+    // OpenAI / Compatible
+    'gpt-4o',
+    'gpt-4o-mini',
+    'grok-2-vision-1212',
+    'deepseek-chat',
+    // Anthropic
+    'claude-3-5-sonnet-20240620',
+    'claude-3-opus-20240229'
 ];
 
 function App() {
@@ -138,6 +145,7 @@ function App() {
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
   const [availableModels, setAvailableModels] = useState<string[]>(DEFAULT_MODELS);
+  const [provider, setProvider] = useState<string>('google');
   
   const [enableSearch, setEnableSearch] = useState<boolean>(true);
   const [enableSolutions, setEnableSolutions] = useState<boolean>(false);
@@ -160,6 +168,7 @@ function App() {
     const settings = getApiSettings();
     if (settings) {
         setAppState(AppState.IDLE);
+        setProvider(settings.provider);
         // Fetch models when we confirm we have settings
         fetchModels().then(models => {
             if (models.length > 0) {
@@ -167,6 +176,14 @@ function App() {
                 if (!models.includes(selectedModel)) {
                     setSelectedModel(models[0]);
                 }
+            } else if (settings.provider === 'anthropic') {
+                 // Anthropic fallback if fetch returns empty
+                 setAvailableModels([
+                    'claude-3-5-sonnet-20240620', 
+                    'claude-3-opus-20240229', 
+                    'claude-3-haiku-20240307'
+                 ]);
+                 setSelectedModel('claude-3-5-sonnet-20240620');
             }
         });
     } else {
@@ -230,11 +247,18 @@ function App() {
   const handleLogin = async (settings: ApiSettings) => {
       saveApiSettings(settings);
       setAppState(AppState.IDLE);
-      // Immediately fetch models
+      setProvider(settings.provider);
+      
       const models = await fetchModels();
       if (models.length > 0) {
           setAvailableModels(models);
           setSelectedModel(models[0]);
+      } else if (settings.provider === 'anthropic') {
+         setAvailableModels(['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']);
+         setSelectedModel('claude-3-5-sonnet-20240620');
+      } else {
+         // Keep default list but try to match provider if possible (heuristic)
+         setAvailableModels(DEFAULT_MODELS);
       }
   };
 
@@ -442,8 +466,10 @@ function App() {
         currentStage: '启动智能审阅引擎...',
       });
 
-      // Simple concurrency logic: Lite/Flash = 4, Pro = 2
-      const CONCURRENCY_LIMIT = selectedModel.includes('flash') ? 4 : 2;
+      // Simple concurrency logic: 
+      // Google Flash = 4
+      // OpenAI/Anthropic usually have lower rate limits on tier 1, conserve to 2.
+      const CONCURRENCY_LIMIT = (provider === 'google' && selectedModel.includes('flash')) ? 4 : 2;
       
       const queue = [...pagesToProcess]; 
       
@@ -669,7 +695,7 @@ function App() {
                     <div className="text-center space-y-6 py-8">
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold mb-2">
                              <Sparkles className="w-4 h-4" /> 
-                             {selectedModel}
+                             {selectedModel} ({provider === 'google' ? 'Google' : provider === 'openai' ? 'OpenAI/Grok' : 'Anthropic'})
                         </div>
                         <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                             重新定义 <span className="text-blue-600">数学出版</span> 审阅流程
@@ -750,19 +776,23 @@ function App() {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                                             <button 
                                                 onClick={() => setEnableSearch(!enableSearch)}
-                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${enableSearch ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200'}`}
+                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${enableSearch ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200'} ${provider !== 'google' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                disabled={provider !== 'google'}
+                                                title={provider !== 'google' ? "仅 Google Gemini 支持原生搜索工具" : ""}
                                             >
                                                 <div className="flex items-center gap-2">
-                                                    <div className={`p-1.5 rounded-md ${enableSearch ? 'bg-emerald-200 text-emerald-800' : 'bg-gray-200 text-gray-500'}`}>
+                                                    <div className={`p-1.5 rounded-md ${enableSearch && provider === 'google' ? 'bg-emerald-200 text-emerald-800' : 'bg-gray-200 text-gray-500'}`}>
                                                         <Search className="w-4 h-4" />
                                                     </div>
                                                     <div className="text-left">
-                                                        <div className={`text-xs font-bold ${enableSearch ? 'text-emerald-900' : 'text-gray-500'}`}>搜索溯源</div>
-                                                        <div className="text-[10px] text-gray-500">联网验证数据</div>
+                                                        <div className={`text-xs font-bold ${enableSearch && provider === 'google' ? 'text-emerald-900' : 'text-gray-500'}`}>搜索溯源</div>
+                                                        <div className="text-[10px] text-gray-500">
+                                                            {provider === 'google' ? '联网验证数据' : '当前模型不支持'}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${enableSearch ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${enableSearch ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${enableSearch && provider === 'google' ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${enableSearch && provider === 'google' ? 'translate-x-4' : 'translate-x-0'}`}></div>
                                                 </div>
                                             </button>
 
@@ -882,7 +912,7 @@ function App() {
                                     onClick={startProcessing}
                                     className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-lg py-4 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99]"
                                 >
-                                    {selectedModel.includes('flash') ? '⚡ 启动极速并行审阅 (会员版)' : '🧠 启动深度精准审阅 (会员版)'}
+                                    {selectedModel.includes('flash') || selectedModel.includes('haiku') || selectedModel.includes('mini') ? '⚡ 启动极速并行审阅 (会员版)' : '🧠 启动深度精准审阅 (会员版)'}
                                 </button>
                             </div>
                         )}

@@ -1,16 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
-import { Key, Globe, ChevronRight, Eye, EyeOff, ShieldCheck, Sparkles, Server, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
-import { ApiSettings } from '../types';
+import { Key, Globe, ChevronRight, Eye, EyeOff, ShieldCheck, Sparkles, Server, Zap, CheckCircle2, AlertCircle, Box } from 'lucide-react';
+import { ApiSettings, AiProvider } from '../types';
 import { testConnection } from '../services/geminiService';
 
 interface LoginScreenProps {
     onLogin: (settings: ApiSettings) => void;
 }
 
+const PROVIDERS: { id: AiProvider; name: string; defaultUrl: string }[] = [
+    { id: 'google', name: 'Google Gemini', defaultUrl: 'https://generativelanguage.googleapis.com' },
+    { id: 'openai', name: 'OpenAI / Grok / DeepSeek', defaultUrl: 'https://api.openai.com/v1' },
+    { id: 'anthropic', name: 'Anthropic Claude', defaultUrl: 'https://api.anthropic.com' },
+];
+
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [apiKey, setApiKey] = useState('');
     const [baseUrl, setBaseUrl] = useState('https://generativelanguage.googleapis.com');
+    const [provider, setProvider] = useState<AiProvider>('google');
     const [showKey, setShowKey] = useState(false);
     
     // Testing state
@@ -21,9 +28,23 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     useEffect(() => {
         const storedKey = localStorage.getItem('mathedit_api_key');
         const storedUrl = localStorage.getItem('mathedit_base_url');
+        const storedProvider = localStorage.getItem('mathedit_provider') as AiProvider;
+        
         if (storedKey) setApiKey(storedKey);
         if (storedUrl) setBaseUrl(storedUrl);
+        if (storedProvider && PROVIDERS.some(p => p.id === storedProvider)) {
+            setProvider(storedProvider);
+        }
     }, []);
+
+    const handleProviderChange = (newProvider: AiProvider) => {
+        setProvider(newProvider);
+        const defaults = PROVIDERS.find(p => p.id === newProvider);
+        if (defaults) {
+            setBaseUrl(defaults.defaultUrl);
+        }
+        setTestStatus('idle');
+    };
 
     const handleTest = async () => {
         if (!apiKey.trim()) return;
@@ -33,18 +54,17 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         setTestMessage('');
         
         try {
-            await testConnection(apiKey.trim(), baseUrl.trim());
+            await testConnection(apiKey.trim(), baseUrl.trim(), provider);
             setTestStatus('success');
             setTestMessage('连接成功！API Key 有效。');
         } catch (error: any) {
             setTestStatus('error');
             let msg = error.message || '连接失败，请检查配置。';
             
-            // 友好的错误提示映射
-            if (msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT')) {
-                msg = 'API Key 无效。请检查是否复制完整，或密钥是否已过期。';
+            if (msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT') || msg.includes('401')) {
+                msg = 'API Key 无效。请检查密钥是否正确。';
             } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-                msg = '网络连接失败。请检查 Base URL 是否正确，或网络是否通畅。';
+                msg = '网络连接失败。请检查 Base URL 或网络。';
             } else if (msg.includes('404')) {
                 msg = '接口地址 (404) 错误。Base URL 可能配置有误。';
             }
@@ -58,22 +78,41 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (apiKey.trim()) {
-            onLogin({ apiKey: apiKey.trim(), baseUrl: baseUrl.trim() });
+            onLogin({ apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), provider });
         }
     };
 
     return (
         <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
             <div className="w-full max-w-[400px] animate-fade-in-up">
-                <div className="mb-10 text-center">
+                <div className="mb-8 text-center">
                     <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-xl shadow-slate-200 mb-6">
                         <Sparkles className="w-7 h-7" />
                     </div>
-                    <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">Welcome Back</h1>
-                    <p className="text-slate-500 text-sm">Configure your AI provider to continue</p>
+                    <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">MathEdit AI</h1>
+                    <p className="text-slate-500 text-sm">选择 AI 提供商并配置密钥</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    
+                    <div className="space-y-2">
+                         <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <Box className="w-3.5 h-3.5" /> AI Provider
+                        </label>
+                        <div className="relative">
+                            <select 
+                                value={provider}
+                                onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-bold text-slate-700 appearance-none"
+                            >
+                                {PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                            <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 rotate-90" />
+                        </div>
+                    </div>
+
                     <div className="space-y-2">
                         <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                             <Key className="w-3.5 h-3.5" /> API Key
@@ -86,7 +125,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     setApiKey(e.target.value);
                                     setTestStatus('idle'); 
                                 }}
-                                placeholder="sk-..."
+                                placeholder={provider === 'google' ? "AIza..." : "sk-..."}
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
                                 required
                             />
@@ -112,13 +151,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     setBaseUrl(e.target.value);
                                     setTestStatus('idle');
                                 }}
-                                placeholder="https://generativelanguage.googleapis.com"
+                                placeholder="https://..."
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
                             />
                         </div>
                         <p className="text-[10px] text-slate-400 leading-relaxed px-1">
-                            Default: <code>https://generativelanguage.googleapis.com</code>. <br/>
-                            Change this if you are using a proxy or a compatible endpoint.
+                            {provider === 'google' && '默认: https://generativelanguage.googleapis.com'}
+                            {provider === 'openai' && '默认: https://api.openai.com/v1 (支持 Grok/DeepSeek 兼容接口)'}
+                            {provider === 'anthropic' && '默认: https://api.anthropic.com'}
                         </p>
                     </div>
 
@@ -131,7 +171,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                          </div>
                     )}
 
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-3 gap-3 pt-2">
                          <button
                             type="button"
                             onClick={handleTest}
@@ -156,7 +196,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                     </div>
                 </form>
 
-                <div className="mt-12 flex justify-center gap-4 text-xs text-slate-400">
+                <div className="mt-10 flex justify-center gap-4 text-xs text-slate-400">
                     <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Local Storage Only</span>
                     <span className="w-px h-3 bg-slate-200 my-auto"></span>
                     <span className="flex items-center gap-1"><Server className="w-3 h-3"/> Direct Connection</span>
