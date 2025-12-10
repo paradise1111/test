@@ -124,13 +124,20 @@ export const fetchModels = async (): Promise<string[]> => {
                 .sort((a: string, b: string) => b.localeCompare(a));
         } else if (settings.provider === 'openai') {
              // For OpenAI compatible endpoints (OneAPI, NewAPI, Grok, DeepSeek, etc.)
-             // We trust the API to return the available models in data: [{id: '...'}] format
-             // We DO NOT filter by name, allowing user to see 'claude-3', 'grok-1', etc. provided by the proxy.
+             // The standard response is { data: [ { id: "..." }, ... ] }
+             
+             let modelList: any[] = [];
              if (data.data && Array.isArray(data.data)) {
-                 return data.data
-                    .map((m: any) => m.id)
-                    .sort();
+                 modelList = data.data;
+             } else if (Array.isArray(data)) {
+                 // Some non-standard proxies might return array directly
+                 modelList = data;
              }
+
+             return modelList
+                .map((m: any) => m.id)
+                .filter((id: any) => typeof id === 'string') // Ensure ID is a string
+                .sort();
         }
         return [];
     } catch (e) {
