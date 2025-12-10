@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Download, Sparkles, MessageSquarePlus, Eye, FileText, Copy, Check } from 'lucide-react';
 
@@ -198,9 +200,12 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({ results, onDownload, onRe
         .preview-fragment .panel-title { font-size: 0.8rem; text-transform: uppercase; color: #64748b; margin-bottom: 10px; font-weight: bold; }
         .preview-fragment .audit-item { background: white; border: 1px solid #cbd5e1; padding: 10px; margin-bottom: 8px; border-radius: 4px; display: flex; gap: 10px; font-size: 0.9rem; }
         .preview-fragment .audit-label { padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; height: fit-content; white-space: nowrap; color: white; }
-        .preview-fragment .audit-item.logic .audit-label { background: #be123c; } 
-        .preview-fragment .audit-item.fact .audit-label { background: #854d0e; }
-        .preview-fragment .audit-item.style .audit-label { background: #0369a1; }
+        
+        /* Updated Audit Categories Colors */
+        .preview-fragment .audit-item.logic .audit-label { background: #be123c; } /* Red */
+        .preview-fragment .audit-item.standard .audit-label { background: #7e22ce; } /* Purple */
+        .preview-fragment .audit-item.grammar .audit-label { background: #0369a1; } /* Blue */
+        .preview-fragment .audit-item.ocr .audit-label { background: #c2410c; } /* Orange */
         
         .preview-fragment .revision-document { padding: 24px; }
         .preview-fragment .document-content { font-family: 'Times New Roman', serif; font-size: 1.05rem; line-height: 1.8; color: #1e293b; }

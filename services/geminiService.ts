@@ -1,4 +1,6 @@
 
+
+
 import { SYSTEM_INSTRUCTION } from '../constants';
 import { ApiSettings } from '../types';
 
@@ -172,6 +174,12 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
         cleaned = cleaned.replace(/^tool_code[\s\S]*?\n/gm, ''); 
         cleaned = cleaned.replace(/^thought\s[\s\S]*?$/gim, ''); 
     }
+
+    // Convert Markdown trackers to HTML tags for visualization
+    // ~~deleted~~ -> <del>deleted</del>
+    cleaned = cleaned.replace(/~~(.*?)~~/g, '<del>$1</del>');
+    // **added** -> <ins>added</ins>
+    cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '<ins>$1</ins>');
 
     if (!cleaned.includes('<div class="page-review"')) {
         const contentAsHtml = cleaned
