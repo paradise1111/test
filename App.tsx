@@ -119,6 +119,10 @@ const PROVIDER_DEFAULTS: Record<AiProvider, string[]> = {
     openai: [
         'gpt-4o',
         'gpt-4o-mini',
+        'grok-beta',
+        'deepseek-chat',
+        'deepseek-reasoner',
+        'claude-3-5-sonnet-20240620'
     ],
     anthropic: [
         'claude-3-5-sonnet-20240620',

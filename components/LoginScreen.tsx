@@ -10,16 +10,17 @@ interface LoginScreenProps {
 
 const PROVIDERS: { id: AiProvider; name: string; defaultUrl: string }[] = [
     { id: 'google', name: 'Google Gemini', defaultUrl: 'https://generativelanguage.googleapis.com' },
-    { id: 'openai', name: 'OpenAI / Compatible (Grok, DeepSeek)', defaultUrl: 'https://api.openai.com/v1' },
+    { id: 'openai', name: 'OpenAI / Compatible', defaultUrl: 'https://api.openai.com/v1' },
     { id: 'anthropic', name: 'Anthropic Claude', defaultUrl: 'https://api.anthropic.com' },
 ];
 
 const ENDPOINT_PRESETS: Record<string, { name: string; url: string }[]> = {
     openai: [
-        { name: 'OpenAI (Official)', url: 'https://api.openai.com/v1' },
+        { name: 'OpenAI', url: 'https://api.openai.com/v1' },
         { name: 'xAI (Grok)', url: 'https://api.x.ai/v1' },
         { name: 'DeepSeek', url: 'https://api.deepseek.com' },
-        { name: 'SiliconFlow (硅基流动)', url: 'https://api.siliconflow.cn/v1' }
+        { name: 'SiliconFlow', url: 'https://api.siliconflow.cn/v1' },
+        { name: 'OhMyGPT/OneAPI', url: 'https://api.ohmygpt.com/v1' }
     ]
 };
 
@@ -65,17 +66,17 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         try {
             await testConnection(apiKey.trim(), baseUrl.trim(), provider);
             setTestStatus('success');
-            setTestMessage('连接成功！API Key 有效。');
+            setTestMessage('连接成功！API Key 有效，服务可访问。');
         } catch (error: any) {
             setTestStatus('error');
             let msg = error.message || '连接失败，请检查配置。';
             
-            if (msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT') || msg.includes('401')) {
-                msg = 'API Key 无效。请检查密钥是否正确。';
+            if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('key')) {
+                msg = 'API Key 无效或无权访问。';
             } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-                msg = '网络连接失败。请检查 Base URL 或网络。';
+                msg = '网络连接失败。请检查 Base URL 或网络设置。';
             } else if (msg.includes('404')) {
-                msg = '接口地址 (404) 错误。Base URL 可能配置有误。';
+                msg = '接口地址 (404) 错误。Base URL 可能配置有误 (OpenAI 兼容接口通常以 /v1 结尾)。';
             }
             
             setTestMessage(msg);
@@ -99,14 +100,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         <Sparkles className="w-7 h-7" />
                     </div>
                     <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">MathEdit AI</h1>
-                    <p className="text-slate-500 text-sm">选择 AI 提供商并配置密钥</p>
+                    <p className="text-slate-500 text-sm">选择 AI 服务商并配置密钥</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
                     
                     <div className="space-y-2">
                          <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Box className="w-3.5 h-3.5" /> AI Provider
+                            <Box className="w-3.5 h-3.5" /> 服务提供商 (Provider)
                         </label>
                         <div className="relative">
                             <select 
@@ -150,7 +151,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
                     <div className="space-y-2">
                         <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Globe className="w-3.5 h-3.5" /> API Endpoint (Base URL)
+                            <Globe className="w-3.5 h-3.5" /> 接口地址 (Base URL)
                         </label>
                         <div className="relative">
                             <input
@@ -160,7 +161,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     setBaseUrl(e.target.value);
                                     setTestStatus('idle');
                                 }}
-                                placeholder="https://..."
+                                placeholder="https://api.openai.com/v1"
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
                             />
                         </div>
@@ -190,7 +191,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
                         <p className="text-[10px] text-slate-400 leading-relaxed px-1 mt-1">
                             {provider === 'google' && '默认: https://generativelanguage.googleapis.com'}
-                            {provider === 'openai' && '支持 Grok (xAI), DeepSeek 等兼容接口。请在上放选择或手动输入 Base URL。'}
+                            {provider === 'openai' && '支持 Grok, DeepSeek, Kimi 等兼容 /v1 协议的接口。'}
                             {provider === 'anthropic' && '默认: https://api.anthropic.com'}
                         </p>
                     </div>
@@ -223,7 +224,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             }`}
                         >
-                            Connect
+                            连接并加载模型
                             <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>
