@@ -109,7 +109,6 @@ const HistoryItem: React.FC<{
     );
 };
 
-// Provider-specific default models to use ONLY if automatic fetching fails completely
 const PROVIDER_DEFAULTS: Record<AiProvider, string[]> = {
     google: [
         'gemini-2.5-flash',
@@ -148,7 +147,6 @@ function App() {
   const [history, setHistory] = useState<ReportRecord[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  // Model Selection State
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [provider, setProvider] = useState<AiProvider>('google');
@@ -166,23 +164,17 @@ function App() {
   const [refinePageIndex, setRefinePageIndex] = useState<number | null>(null);
   const [isRefining, setIsRefining] = useState(false);
 
-  // Controller for aborting requests immediately
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Helper to load models
   const loadModelsForProvider = async (currentProvider: AiProvider) => {
-    // 1. Try to fetch dynamic list first
     const models = await fetchModels();
     
     if (models.length > 0) {
-        // Success! Use the backend provided list.
         setAvailableModels(models);
-        // If current selected model is not in new list, pick first
         if (!models.includes(selectedModel)) {
             setSelectedModel(models[0]);
         }
     } else {
-        // Fallback to static defaults if API doesn't support list models or fails
         const defaults = PROVIDER_DEFAULTS[currentProvider] || PROVIDER_DEFAULTS.google;
         setAvailableModels(defaults);
         if (!defaults.includes(selectedModel)) {
@@ -192,7 +184,6 @@ function App() {
   };
 
   useEffect(() => {
-    // Check for login status
     const settings = getApiSettings();
     if (settings) {
         setAppState(AppState.IDLE);
@@ -202,7 +193,6 @@ function App() {
         setAppState(AppState.LOGIN);
     }
     
-    // ... rest of restoration logic ...
     if (typeof localStorage !== 'undefined') {
         try {
             const savedHistory = localStorage.getItem('math_edit_history');
@@ -467,9 +457,6 @@ function App() {
         currentStage: '启动智能审阅引擎...',
       });
 
-      // Simple concurrency logic: 
-      // Google Flash = 4
-      // OpenAI/Anthropic usually have lower rate limits on tier 1, conserve to 2.
       const CONCURRENCY_LIMIT = (provider === 'google' && selectedModel.includes('flash')) ? 4 : 2;
       
       const queue = [...pagesToProcess]; 
