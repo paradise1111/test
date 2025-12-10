@@ -1,28 +1,24 @@
 
 import { SYSTEM_INSTRUCTION } from '../constants';
-import { ApiSettings, AiProvider } from '../types';
+import { ApiSettings } from '../types';
 
 // Native Fetch Implementation - No SDK Dependency
 
 export const saveApiSettings = (settings: ApiSettings) => {
     localStorage.setItem('mathedit_api_key', settings.apiKey);
     localStorage.setItem('mathedit_base_url', settings.baseUrl);
-    localStorage.setItem('mathedit_provider', settings.provider);
 };
 
 export const getApiSettings = (): ApiSettings | null => {
     const apiKey = localStorage.getItem('mathedit_api_key');
-    let baseUrl = localStorage.getItem('mathedit_base_url');
-    // Default to openai if not set, as requested for OneAPI compatibility
-    const provider = (localStorage.getItem('mathedit_provider') as AiProvider) || 'openai';
+    let baseUrl = localStorage.getItem('mathedit_base_url') || 'https://generativelanguage.googleapis.com';
     
-    if (!baseUrl) {
-        if (provider === 'google') baseUrl = 'https://generativelanguage.googleapis.com';
-        else baseUrl = 'https://api.openai.com/v1'; // Default placeholder
+    if (!apiKey && process.env.API_KEY) {
+        return { apiKey: process.env.API_KEY, baseUrl };
     }
-    
+
     if (!apiKey) return null;
-    return { apiKey, baseUrl: baseUrl!, provider };
+    return { apiKey, baseUrl };
 };
 
 export const clearApiSettings = () => {
@@ -32,9 +28,6 @@ export const clearApiSettings = () => {
 const normalizeUrl = (url: string) => {
     let clean = url.trim();
     while (clean.endsWith('/')) clean = clean.slice(0, -1);
-    // Ensure we don't accidentally double-append /v1 if the user already provided it
-    // But for raw base URLs like http://domain.com, we might need it. 
-    // The user example shows input: http://.../v1, so we assume user inputs full base path.
     return clean;
 };
 
@@ -45,84 +38,42 @@ export const fetchModels = async (): Promise<string[]> => {
     if (!settings) return [];
 
     const baseUrl = normalizeUrl(settings.baseUrl);
-    
-    // Google Native Path
-    if (settings.provider === 'google') {
-        const url = `${baseUrl}/v1beta/models?key=${settings.apiKey}`;
-        try {
-            const response = await fetch(url);
-            if (!response.ok) return [];
-            const data = await response.json();
-            return (data.models || [])
-                .map((m: any) => m.name.replace('models/', ''))
-                .filter((n: string) => n.includes('gemini'))
-                .sort();
-        } catch (e) {
-            console.warn("Google fetch models failed", e);
-            return [];
-        }
-    }
+    // Use v1beta endpoint to list models
+    const url = `${baseUrl}/v1beta/models?key=${settings.apiKey}`;
 
-    // OpenAI / OneAPI Path
-    // Standard: GET /models
-    const url = `${baseUrl}/models`;
     try {
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${settings.apiKey}` }
-        });
-        
+        const response = await fetch(url);
         if (!response.ok) {
-            console.warn(`Fetch models failed: ${response.status}`);
+            console.warn("Failed to fetch models list, falling back to defaults.");
             return [];
         }
-
         const data = await response.json();
-        
-        // Handle various response formats from different proxies
-        // Standard: { data: [{ id: "..." }, ...] }
-        // Some: { models: [...] }
-        // Some: [...]
-        let list: any[] = [];
-        if (Array.isArray(data.data)) list = data.data;
-        else if (Array.isArray(data.models)) list = data.models;
-        else if (Array.isArray(data)) list = data;
-
-        return list
-            .map((item: any) => item.id || item.name) // prioritize ID
-            .filter((id: any) => typeof id === 'string')
-            .sort();
-            
+        if (data.models && Array.isArray(data.models)) {
+            return data.models
+                .map((m: any) => m.name.replace('models/', ''))
+                // Prioritize displaying gemini models
+                .filter((n: string) => n.includes('gemini'))
+                .sort((a: string, b: string) => b.localeCompare(a));
+        }
+        return [];
     } catch (e) {
-        console.warn("OpenAI/OneAPI fetch models failed", e);
+        console.warn("Error fetching models:", e);
         return [];
     }
 };
 
-export const testConnection = async (apiKey: string, baseUrl: string, provider: AiProvider): Promise<boolean> => {
-    const cleanBase = normalizeUrl(baseUrl);
-
+export const testConnection = async (apiKey: string, baseUrl: string): Promise<boolean> => {
+    const cleanUrl = normalizeUrl(baseUrl);
+    // Lightweight check: List models
+    const url = `${cleanUrl}/v1beta/models?key=${apiKey}`;
+    
     try {
-        if (provider === 'google') {
-             const url = `${cleanBase}/v1beta/models?key=${apiKey}`;
-             const res = await fetch(url);
-             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-             return true;
-        }
-
-        // For OpenAI/OneAPI, we test by fetching models as per the example
-        const url = `${cleanBase}/models`;
-        const res = await fetch(url, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error?.message || `HTTP ${res.status}`);
+        const response = await fetch(url);
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error?.message || `HTTP Error ${response.status}`);
         }
         return true;
-
     } catch (error) {
         console.error("Connection Test Failed:", error);
         throw error;
@@ -139,36 +90,89 @@ const withRetry = async <T>(
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
     try {
       return await operation();
     } catch (error: any) {
       lastError = error;
+      if (error.name === 'AbortError' || signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
       const msg = (error.message || '').toLowerCase();
       const code = error.status || 0;
-      const isRetryable = code === 429 || code >= 500 || msg.includes('fetch failed') || msg.includes('networkerror');
+      
+      const isRetryable = 
+        code === 429 || code >= 500 || 
+        msg.includes('fetch failed') || 
+        msg.includes('networkerror') ||
+        msg.includes('overloaded');
+
       if (!isRetryable || attempt === maxRetries - 1) throw error;
-      await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
+
+      let delay = baseDelay * Math.pow(2, attempt);
+      if (code === 429) delay += 3000;
+
+      await new Promise((resolve, reject) => {
+          const timeout = setTimeout(resolve, delay);
+          if (signal) {
+              signal.addEventListener('abort', () => {
+                  clearTimeout(timeout);
+                  reject(new DOMException('Aborted', 'AbortError'));
+              }, { once: true });
+          }
+      });
     }
   }
   throw lastError;
 };
 
+const getErrorDetails = (error: any) => {
+    if (error.name === 'AbortError') {
+        return { title: '已停止', desc: '用户手动停止了任务。', tips: [] };
+    }
+
+    const msg = (error.message || '').toLowerCase();
+    
+    if (msg.includes('api key') || msg.includes('400') || msg.includes('invalid')) {
+        return {
+            title: '配置错误 (Invalid Request)',
+            desc: 'API Key 无效或请求参数错误。',
+            tips: ['请检查 API Key 是否正确。', '检查 Base URL 是否正确。']
+        };
+    }
+    if (msg.includes('429') || msg.includes('quota')) {
+        return {
+            title: '配额耗尽 (Quota Exceeded)',
+            desc: '请求过于频繁或配额已用完。',
+            tips: ['请稍后重试。', '尝试切换到 Flash 模型（配额较高）。']
+        };
+    }
+    if (msg.includes('fetch failed') || msg.includes('network')) {
+        return {
+            title: '网络连接失败',
+            desc: '无法连接到 API 服务器。',
+            tips: ['请检查网络或代理设置。', '确认 Base URL 是否可访问。']
+        };
+    }
+
+    return {
+        title: '处理异常',
+        desc: '发生了一个错误。',
+        tips: [`Error: ${msg.slice(0, 100)}`]
+    };
+};
+
 const cleanGeminiOutput = (text: string, pageNumber: number): string => {
-    // Remove markdown code blocks if present
     let cleaned = text.replace(/```html/gi, '').replace(/```/g, '').trim();
 
-    // Try to find the start of the valid HTML structure
     const startTag = '<div class="page-review"';
     const startIndex = cleaned.indexOf(startTag);
     if (startIndex !== -1) {
         cleaned = cleaned.substring(startIndex);
-    } 
+    } else {
+        cleaned = cleaned.replace(/^tool_code[\s\S]*?\n/gm, ''); 
+        cleaned = cleaned.replace(/^thought\s[\s\S]*?$/gim, ''); 
+    }
 
-    // Basic cleaning of markdown bold/strikethrough if the model returned markdown instead of HTML tags
-    cleaned = cleaned.replace(/~~(.*?)~~/g, '<del>$1</del>');
-    cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '<ins>$1</ins>');
-
-    // Fallback wrapper if strictly formatted HTML is missing
     if (!cleaned.includes('<div class="page-review"')) {
         const contentAsHtml = cleaned
             .split('\n')
@@ -179,7 +183,7 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
         return `
         <div class="page-review" id="page-${pageNumber}">
             <div class="page-header">
-                 <h2 class="page-title">PAGE ${pageNumber} (Auto-Formatted)</h2>
+                 <h2 class="page-title">第 ${pageNumber} 页 (格式自动修复)</h2>
             </div>
             <div class="revision-document">
                 <div class="document-content">
@@ -192,38 +196,37 @@ const cleanGeminiOutput = (text: string, pageNumber: number): string => {
     return cleaned;
 };
 
-// --- Main Analysis Logic ---
-
 export const extractLearningRule = async (
     originalAiText: string,
     userCorrectedText: string,
-    model: string
+    model: string = 'gemini-2.5-flash'
 ): Promise<string> => {
     const settings = getApiSettings();
-    if (!settings) return "Manual correction.";
-    
-    // Simple prompt for rule extraction
-    const prompt = `Task: Extract a specific rule based on the user's correction.\nOriginal: ${originalAiText.slice(0, 300)}\nCorrection: ${userCorrectedText.slice(0, 300)}\nRule:`;
+    if (!settings) return "User applied manual text style.";
 
-    // OpenAI Compatible Call
+    const baseUrl = normalizeUrl(settings.baseUrl);
+    const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${settings.apiKey}`;
+
+    const prompt = `
+    Task: Extract a specific "Content Rule" based on the user's correction.
+    [AI Original]: ${originalAiText.slice(0, 500)}...
+    [User Corrected]: ${userCorrectedText.slice(0, 500)}...
+    Return ONLY the rule as a single concise sentence.
+    `;
+
     try {
-        const url = `${normalizeUrl(settings.baseUrl)}/chat/completions`;
-        const res = await fetch(url, {
+        const response = await fetch(url, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.apiKey}`
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: model,
-                messages: [{ role: 'user', content: prompt }],
-                max_tokens: 100
+                contents: [{ parts: [{ text: prompt }] }]
             })
         });
-        const data = await res.json();
-        return data.choices?.[0]?.message?.content?.trim() || "Manual correction.";
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "User prefers manual corrections.";
     } catch (e) {
-        return "Manual correction.";
+        console.warn("Failed to learn rule", e);
+        return "User applied manual text style.";
     }
 };
 
@@ -231,7 +234,7 @@ export const analyzePageContent = async (
   imageBase64: string, 
   pageNumber: number,
   knowledgeBase: string = "",
-  model: string = 'gpt-4o',
+  model: string = 'gemini-3-pro-preview',
   enableSearch: boolean = true,
   enableSolutions: boolean = false,
   learnedRules: string[] = [],
@@ -239,123 +242,127 @@ export const analyzePageContent = async (
   signal?: AbortSignal
 ): Promise<string> => {
     const settings = getApiSettings();
-    if (!settings) throw new Error("API configuration missing.");
+    if (!settings) throw new Error("API configuration missing. Please login.");
 
     const baseUrl = normalizeUrl(settings.baseUrl);
     const cleanModel = model.replace('models/', '');
+    // Using v1beta for widest compatibility with tools
+    const url = `${baseUrl}/v1beta/models/${cleanModel}:generateContent?key=${settings.apiKey}`;
 
-    // Image Prep
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-    const mimeType = imageBase64.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/jpeg';
 
-    // Prompt Construction
     let systemPrompt = SYSTEM_INSTRUCTION;
     if (knowledgeBase) systemPrompt += `\n\n=== 📚 Knowledge Base ===\n${knowledgeBase}`;
     if (learnedRules.length > 0) systemPrompt += `\n\n=== 🧠 Learned Rules ===\n${learnedRules.map((r,i)=>`${i+1}. ${r}`).join('\n')}`;
-    
-    if (settings.provider !== 'google' && enableSearch) {
-        systemPrompt += `\n\n(Note: External live search is unavailable in this mode.)`;
-    }
+    if (!enableSearch) systemPrompt += `\n\nExternal search disabled.`;
 
     let userPrompt = "";
     if (refinementContext) {
-        userPrompt = `Correction Task:\nFeedback: "${refinementContext.feedback}"\nPrevious: ${refinementContext.previousHtml}\nRegenerate Page ${pageNumber} HTML.`;
+        userPrompt = `**Correction Task**\nFeedback: "${refinementContext.feedback}"\nPrevious Content: ${refinementContext.previousHtml}\nTask: Regenerate Page ${pageNumber} HTML correcting issues.`;
     } else {
         userPrompt = `Review Page ${pageNumber}. Return valid HTML. ${enableSolutions ? 'Include math solutions.' : ''}`;
     }
 
-    // Google Native Path
-    if (settings.provider === 'google') {
-        const url = `${baseUrl}/v1beta/models/${cleanModel}:generateContent?key=${settings.apiKey}`;
-        const payload = {
-            contents: [{
-                role: 'user',
-                parts: [
-                    { inlineData: { mimeType: mimeType, data: base64Data } },
-                    { text: userPrompt }
-                ]
-            }],
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: { temperature: 0.2 }
-        };
-        // @ts-ignore
-        if (enableSearch) payload.tools = [{ googleSearch: {} }];
+    // Construct Payload
+    const payload: any = {
+        contents: [{
+            role: 'user',
+            parts: [
+                { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
+                { text: userPrompt }
+            ]
+        }],
+        systemInstruction: {
+            parts: [{ text: systemPrompt }]
+        },
+        safetySettings: [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+        ],
+        generationConfig: {
+            temperature: 0.2 // Low temperature for factual accuracy
+        }
+    };
 
-        const response = await withRetry(async () => {
-             const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                signal
-             });
-             if (!res.ok) throw new Error(`Google API Error: ${res.status}`);
-             return res.json();
-        }, 3, 2000, signal);
-
-        const text = response.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') || '';
-        return cleanGeminiOutput(text, pageNumber);
+    if (enableSearch) {
+        payload.tools = [{ googleSearch: {} }];
     }
 
-    // OpenAI / OneAPI Path (The "Logic Kernel" replacement)
-    // Uses POST /chat/completions
-    const url = `${baseUrl}/chat/completions`;
-    
-    const payload = {
-        model: cleanModel,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { 
-                role: 'user', 
-                content: [
-                    { type: "text", text: userPrompt },
-                    { 
-                        type: "image_url", 
-                        image_url: { 
-                            url: `data:${mimeType};base64,${base64Data}`,
-                            detail: "high" 
-                        } 
-                    }
-                ] 
+    const performRequest = async (currentEnableSearch: boolean) => {
+        if (!currentEnableSearch && payload.tools) delete payload.tools;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal
+        });
+
+        if (!response.ok) {
+            const errBody = await response.json().catch(() => ({}));
+            throw new Error(errBody.error?.message || `HTTP ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        // Handle potential empty responses or blocks
+        if (!data.candidates || data.candidates.length === 0) {
+            if (data.promptFeedback?.blockReason) {
+                throw new Error(`Blocked by AI Safety: ${data.promptFeedback.blockReason}`);
             }
-        ],
-        temperature: 0.2,
-        stream: false 
+            throw new Error("AI returned empty response.");
+        }
+
+        const text = data.candidates[0].content?.parts?.map((p: any) => p.text).join('') || '';
+        const grounding = data.candidates[0].groundingMetadata;
+
+        return { text, groundingMetadata: grounding, fallbackUsed: !currentEnableSearch && enableSearch };
     };
 
     try {
-        const data = await withRetry(async () => {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${settings.apiKey}`
-                },
-                body: JSON.stringify(payload),
-                signal
-            });
-            
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error?.message || `HTTP ${res.status}`);
+        const responseData = await withRetry(async () => {
+            try {
+                return await performRequest(enableSearch);
+            } catch (error: any) {
+                if (signal?.aborted) throw error;
+                // If search fails (e.g. 400 or quota), try without search
+                if (enableSearch && !error.message?.includes('timed out')) {
+                    console.warn("Search failed, retrying without search...", error);
+                    return await performRequest(false);
+                }
+                throw error;
             }
-            return res.json();
         }, 3, 2000, signal);
 
-        const text = data.choices?.[0]?.message?.content || '';
-        return cleanGeminiOutput(text, pageNumber);
+        let htmlContent = cleanGeminiOutput(responseData.text, pageNumber);
+
+        if (responseData.fallbackUsed) {
+            const warningHtml = `<div class="review-section" style="background:#fffbeb;border-bottom:1px solid #fcd34d;"><div class="suggestion-item"><span class="tag tag-style" style="background:#fbbf24;color:#78350f;">⚠️ 搜索受限</span><span>自动切换至纯推理模式。</span></div></div>`;
+            const idx = htmlContent.indexOf('<div class="review-section"');
+            if (idx !== -1) htmlContent = htmlContent.slice(0, idx) + warningHtml + htmlContent.slice(idx);
+        }
+
+        return htmlContent;
 
     } catch (error: any) {
         if (error.name === 'AbortError') throw error;
-        console.error("Analysis Failed:", error);
         
+        console.error("Gemini Fetch Error:", error);
+        const errorDetails = getErrorDetails(error);
+
         return `
         <div class="page-review error-card" id="page-${pageNumber}">
-            <div class="page-header"><h2 class="page-title">PAGE ${pageNumber} - ERROR</h2></div>
+            <div class="page-header">
+                <h2 class="page-title">PAGE ${pageNumber} - ⚠️ ${errorDetails.title}</h2>
+            </div>
             <div class="review-section">
                 <div class="suggestion-item">
-                    <span class="tag tag-error">Failed</span>
-                    <span>${error.message || "Unknown error"}</span>
+                    <span class="tag tag-error">处理失败</span>
+                    <span>${errorDetails.desc}</span>
                 </div>
+                 <p style="padding:15px; font-family:monospace; color:#991b1b; font-size: 0.8em;">Debug: ${(error as Error).message}</p>
             </div>
         </div>`;
     }

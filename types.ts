@@ -29,11 +29,7 @@ export interface ReportRecord {
   pageOffset: number;
 }
 
-// 'google' reserved for official Google API. 'openai' is now the catch-all for custom/oneapi.
-export type AiProvider = 'google' | 'openai' | 'anthropic';
-
 export interface ApiSettings {
   apiKey: string;
   baseUrl: string;
-  provider: AiProvider;
 }

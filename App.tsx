@@ -5,7 +5,7 @@ import ProgressBar from './components/ProgressBar';
 import ReportPreview from './components/ReportPreview';
 import RefineModal from './components/RefineModal';
 import LoginScreen from './components/LoginScreen';
-import { AppState, ProcessingStatus, ReportRecord, ApiSettings, AiProvider } from './types';
+import { AppState, ProcessingStatus, ReportRecord, ApiSettings } from './types';
 import { loadPdf, renderPageToImage, createSubsetPdf, extractTextFromPdf } from './services/pdfService';
 import { analyzePageContent, extractLearningRule, saveApiSettings, getApiSettings, clearApiSettings, fetchModels } from './services/geminiService';
 import { HTML_TEMPLATE_START, HTML_TEMPLATE_END } from './constants';
@@ -109,14 +109,14 @@ const HistoryItem: React.FC<{
     );
 };
 
-const PROVIDER_DEFAULTS: Record<string, string[]> = {
-    google: [
-        'gemini-2.5-flash',
-        'gemini-2.0-flash-exp',
-        'gemini-1.5-pro-latest'
-    ]
-    // Removed defaults for openai/anthropic to force manual input if fetch fails
-};
+// Default models fallback
+const DEFAULT_MODELS = [
+    'gemini-2.0-flash-thinking-exp-01-21',
+    'gemini-2.0-pro-exp-02-05',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-pro-latest',
+    'gemini-1.5-flash-latest'
+];
 
 function App() {
   const [appState, setAppState] = useState<AppState>(AppState.LOGIN);
@@ -135,9 +135,9 @@ function App() {
   const [history, setHistory] = useState<ReportRecord[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  const [selectedModel, setSelectedModel] = useState<string>('');
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [provider, setProvider] = useState<AiProvider>('google');
+  // Model Selection State
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [availableModels, setAvailableModels] = useState<string[]>(DEFAULT_MODELS);
   
   const [enableSearch, setEnableSearch] = useState<boolean>(true);
   const [enableSolutions, setEnableSolutions] = useState<boolean>(false);
@@ -152,46 +152,28 @@ function App() {
   const [refinePageIndex, setRefinePageIndex] = useState<number | null>(null);
   const [isRefining, setIsRefining] = useState(false);
 
+  // Controller for aborting requests immediately
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const loadModelsForProvider = async (currentProvider: AiProvider) => {
-    try {
-        const models = await fetchModels();
-        if (models.length > 0) {
-            setAvailableModels(models);
-            if (!models.includes(selectedModel)) {
-                setSelectedModel(models[0]);
-            }
-        } else {
-            // If fetch fails or returns empty:
-            setAvailableModels([]);
-            
-            // For Google, we can safely use defaults
-            if (currentProvider === 'google') {
-                setAvailableModels(PROVIDER_DEFAULTS.google);
-                setSelectedModel(PROVIDER_DEFAULTS.google[0]);
-            } else {
-                // For Custom/OpenAI, do NOT force 'gpt-4o'. Let user type.
-                // Reset selected model to empty or keep previous if valid
-                if (!selectedModel) setSelectedModel('');
-            }
-        }
-    } catch (e) {
-        console.error("Error loading models", e);
-        setAvailableModels([]);
-    }
-  };
-
   useEffect(() => {
+    // Check for login status
     const settings = getApiSettings();
     if (settings) {
         setAppState(AppState.IDLE);
-        setProvider(settings.provider);
-        loadModelsForProvider(settings.provider);
+        // Fetch models when we confirm we have settings
+        fetchModels().then(models => {
+            if (models.length > 0) {
+                setAvailableModels(models);
+                if (!models.includes(selectedModel)) {
+                    setSelectedModel(models[0]);
+                }
+            }
+        });
     } else {
         setAppState(AppState.LOGIN);
     }
     
+    // ... rest of restoration logic ...
     if (typeof localStorage !== 'undefined') {
         try {
             const savedHistory = localStorage.getItem('math_edit_history');
@@ -248,8 +230,12 @@ function App() {
   const handleLogin = async (settings: ApiSettings) => {
       saveApiSettings(settings);
       setAppState(AppState.IDLE);
-      setProvider(settings.provider);
-      await loadModelsForProvider(settings.provider);
+      // Immediately fetch models
+      const models = await fetchModels();
+      if (models.length > 0) {
+          setAvailableModels(models);
+          setSelectedModel(models[0]);
+      }
   };
 
   const handleSettings = () => {
@@ -456,7 +442,8 @@ function App() {
         currentStage: '启动智能审阅引擎...',
       });
 
-      const CONCURRENCY_LIMIT = (provider === 'google' && selectedModel.includes('flash')) ? 4 : 2;
+      // Simple concurrency logic: Lite/Flash = 4, Pro = 2
+      const CONCURRENCY_LIMIT = selectedModel.includes('flash') ? 4 : 2;
       
       const queue = [...pagesToProcess]; 
       
@@ -682,7 +669,7 @@ function App() {
                     <div className="text-center space-y-6 py-8">
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold mb-2">
                              <Sparkles className="w-4 h-4" /> 
-                             {selectedModel || '手动输入模式'} ({provider === 'google' ? 'Google' : 'Custom Provider'})
+                             {selectedModel}
                         </div>
                         <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                             重新定义 <span className="text-blue-600">数学出版</span> 审阅流程
@@ -763,23 +750,19 @@ function App() {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                                             <button 
                                                 onClick={() => setEnableSearch(!enableSearch)}
-                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${enableSearch ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200'} ${provider !== 'google' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                disabled={provider !== 'google'}
-                                                title={provider !== 'google' ? "仅 Google Gemini 支持原生搜索工具" : ""}
+                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${enableSearch ? 'bg-emerald-50 border-emerald-300' : 'bg-gray-50 border-gray-200'}`}
                                             >
                                                 <div className="flex items-center gap-2">
-                                                    <div className={`p-1.5 rounded-md ${enableSearch && provider === 'google' ? 'bg-emerald-200 text-emerald-800' : 'bg-gray-200 text-gray-500'}`}>
+                                                    <div className={`p-1.5 rounded-md ${enableSearch ? 'bg-emerald-200 text-emerald-800' : 'bg-gray-200 text-gray-500'}`}>
                                                         <Search className="w-4 h-4" />
                                                     </div>
                                                     <div className="text-left">
-                                                        <div className={`text-xs font-bold ${enableSearch && provider === 'google' ? 'text-emerald-900' : 'text-gray-500'}`}>搜索溯源</div>
-                                                        <div className="text-[10px] text-gray-500">
-                                                            {provider === 'google' ? '联网验证数据' : '当前模型不支持'}
-                                                        </div>
+                                                        <div className={`text-xs font-bold ${enableSearch ? 'text-emerald-900' : 'text-gray-500'}`}>搜索溯源</div>
+                                                        <div className="text-[10px] text-gray-500">联网验证数据</div>
                                                     </div>
                                                 </div>
-                                                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${enableSearch && provider === 'google' ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${enableSearch && provider === 'google' ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${enableSearch ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${enableSearch ? 'translate-x-4' : 'translate-x-0'}`}></div>
                                                 </div>
                                             </button>
 
@@ -805,35 +788,21 @@ function App() {
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">选择模型 (Select Model)</label>
                                             <div className="relative">
-                                                {availableModels.length > 0 ? (
-                                                    <>
-                                                        <select
-                                                            value={selectedModel}
-                                                            onChange={(e) => setSelectedModel(e.target.value)}
-                                                            className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8 font-medium"
-                                                        >
-                                                            {availableModels.map(model => (
-                                                                <option key={model} value={model}>{model}</option>
-                                                            ))}
-                                                        </select>
-                                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
-                                                            <ChevronDown className="h-4 w-4" />
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <input 
-                                                        type="text"
-                                                        value={selectedModel}
-                                                        onChange={(e) => setSelectedModel(e.target.value)}
-                                                        placeholder="未自动获取到模型列表，请手动输入 (如: deepseek-chat)"
-                                                        className="w-full bg-slate-50 border border-yellow-300 text-slate-900 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block p-2.5 font-medium placeholder-slate-400"
-                                                    />
-                                                )}
+                                                <select
+                                                    value={selectedModel}
+                                                    onChange={(e) => setSelectedModel(e.target.value)}
+                                                    className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8 font-medium"
+                                                >
+                                                    {availableModels.map(model => (
+                                                        <option key={model} value={model}>{model}</option>
+                                                    ))}
+                                                </select>
+                                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                                                    <ChevronDown className="h-4 w-4" />
+                                                </div>
                                             </div>
                                             <p className="text-[10px] text-slate-400">
-                                                {availableModels.length > 0 
-                                                    ? "列表已从服务器获取。" 
-                                                    : "⚠️ 无法自动获取模型列表（可能是 CORS 或接口路径问题），请手动输入模型名称。"}
+                                                列表已从服务器自动获取。如遇网络问题将使用默认列表。
                                             </p>
                                         </div>
                                     </div>
@@ -913,7 +882,7 @@ function App() {
                                     onClick={startProcessing}
                                     className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-lg py-4 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99]"
                                 >
-                                    {selectedModel.includes('flash') || selectedModel.includes('haiku') || selectedModel.includes('mini') ? '⚡ 启动极速并行审阅 (会员版)' : '🧠 启动深度精准审阅 (会员版)'}
+                                    {selectedModel.includes('flash') ? '⚡ 启动极速并行审阅 (会员版)' : '🧠 启动深度精准审阅 (会员版)'}
                                 </button>
                             </div>
                         )}
