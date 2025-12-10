@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Key, Globe, ChevronRight, Eye, EyeOff, ShieldCheck, Sparkles, Server, Zap, CheckCircle2, AlertCircle, Box } from 'lucide-react';
+import { Key, Globe, ChevronRight, Eye, EyeOff, ShieldCheck, Sparkles, Server, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ApiSettings, AiProvider } from '../types';
 import { testConnection } from '../services/geminiService';
 
@@ -8,26 +8,19 @@ interface LoginScreenProps {
     onLogin: (settings: ApiSettings) => void;
 }
 
-const PROVIDERS: { id: AiProvider; name: string; defaultUrl: string }[] = [
-    { id: 'google', name: 'Google Gemini', defaultUrl: 'https://generativelanguage.googleapis.com' },
-    { id: 'openai', name: 'OpenAI / Compatible', defaultUrl: 'https://api.openai.com/v1' },
-    { id: 'anthropic', name: 'Anthropic Claude', defaultUrl: 'https://api.anthropic.com' },
+// Common endpoints for quick selection
+const PRESETS = [
+    { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com' },
+    { name: 'OpenAI', url: 'https://api.openai.com/v1' },
+    { name: 'xAI (Grok)', url: 'https://api.x.ai/v1' },
+    { name: 'DeepSeek', url: 'https://api.deepseek.com' },
+    { name: 'SiliconFlow', url: 'https://api.siliconflow.cn/v1' },
+    { name: 'OneAPI / Other', url: '' } // Empty to let user type
 ];
-
-const ENDPOINT_PRESETS: Record<string, { name: string; url: string }[]> = {
-    openai: [
-        { name: 'OpenAI', url: 'https://api.openai.com/v1' },
-        { name: 'xAI (Grok)', url: 'https://api.x.ai/v1' },
-        { name: 'DeepSeek', url: 'https://api.deepseek.com' },
-        { name: 'SiliconFlow', url: 'https://api.siliconflow.cn/v1' },
-        { name: 'OhMyGPT/OneAPI', url: 'https://api.ohmygpt.com/v1' }
-    ]
-};
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [apiKey, setApiKey] = useState('');
     const [baseUrl, setBaseUrl] = useState('https://generativelanguage.googleapis.com');
-    const [provider, setProvider] = useState<AiProvider>('google');
     const [showKey, setShowKey] = useState(false);
     
     // Testing state
@@ -38,21 +31,27 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     useEffect(() => {
         const storedKey = localStorage.getItem('mathedit_api_key');
         const storedUrl = localStorage.getItem('mathedit_base_url');
-        const storedProvider = localStorage.getItem('mathedit_provider') as AiProvider;
         
         if (storedKey) setApiKey(storedKey);
         if (storedUrl) setBaseUrl(storedUrl);
-        if (storedProvider && PROVIDERS.some(p => p.id === storedProvider)) {
-            setProvider(storedProvider);
-        }
     }, []);
 
-    const handleProviderChange = (newProvider: AiProvider) => {
-        setProvider(newProvider);
-        const defaults = PROVIDERS.find(p => p.id === newProvider);
-        if (defaults) {
-            setBaseUrl(defaults.defaultUrl);
-        }
+    // Auto-detect provider based on URL
+    const determineProvider = (url: string): AiProvider => {
+        const lower = url.toLowerCase().trim();
+        if (lower.includes('googleapis.com')) return 'google';
+        if (lower.includes('anthropic.com')) return 'anthropic';
+        // Default to OpenAI compatible for everything else (OneAPI, DeepSeek, etc.)
+        return 'openai';
+    };
+
+    const handleUrlChange = (val: string) => {
+        setBaseUrl(val);
+        setTestStatus('idle');
+    };
+
+    const handlePresetClick = (url: string) => {
+        setBaseUrl(url);
         setTestStatus('idle');
     };
 
@@ -63,10 +62,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         setTestStatus('idle');
         setTestMessage('');
         
+        const provider = determineProvider(baseUrl);
+
         try {
             await testConnection(apiKey.trim(), baseUrl.trim(), provider);
             setTestStatus('success');
-            setTestMessage('连接成功！API Key 有效，服务可访问。');
+            setTestMessage(`连接成功! (${provider === 'openai' ? 'OpenAI Compatible' : provider})`);
         } catch (error: any) {
             setTestStatus('error');
             let msg = error.message || '连接失败，请检查配置。';
@@ -76,7 +77,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
                 msg = '网络连接失败。请检查 Base URL 或网络设置。';
             } else if (msg.includes('404')) {
-                msg = '接口地址 (404) 错误。Base URL 可能配置有误 (OpenAI 兼容接口通常以 /v1 结尾)。';
+                msg = '接口地址 (404) 错误。Base URL 可能配置有误。';
             }
             
             setTestMessage(msg);
@@ -88,6 +89,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (apiKey.trim()) {
+            const provider = determineProvider(baseUrl);
             onLogin({ apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), provider });
         }
     };
@@ -100,27 +102,46 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         <Sparkles className="w-7 h-7" />
                     </div>
                     <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">MathEdit AI</h1>
-                    <p className="text-slate-500 text-sm">选择 AI 服务商并配置密钥</p>
+                    <p className="text-slate-500 text-sm">配置 API 服务连接</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
                     
                     <div className="space-y-2">
-                         <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Box className="w-3.5 h-3.5" /> 服务提供商 (Provider)
+                        <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <Globe className="w-3.5 h-3.5" /> 接口地址 (Base URL)
                         </label>
-                        <div className="relative">
-                            <select 
-                                value={provider}
-                                onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-bold text-slate-700 appearance-none"
-                            >
-                                {PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            </select>
-                            <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 rotate-90" />
+                        
+                        {/* Preset Buttons */}
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                            {PRESETS.map((preset) => (
+                                <button
+                                    key={preset.name}
+                                    type="button"
+                                    onClick={() => handlePresetClick(preset.url)}
+                                    className={`px-2 py-1 text-[10px] font-bold rounded border transition-colors ${
+                                        baseUrl === preset.url && preset.url !== ''
+                                        ? 'bg-slate-800 text-white border-slate-800' 
+                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    {preset.name}
+                                </button>
+                            ))}
                         </div>
+
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={baseUrl}
+                                onChange={(e) => handleUrlChange(e.target.value)}
+                                placeholder="https://api.openai.com/v1"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800 placeholder-slate-300"
+                            />
+                        </div>
+                         <p className="text-[10px] text-slate-400 leading-relaxed px-1 mt-1">
+                            系统将根据 URL 自动识别协议 (Google / Anthropic / OpenAI Compatible)。
+                        </p>
                     </div>
 
                     <div className="space-y-2">
@@ -135,7 +156,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     setApiKey(e.target.value);
                                     setTestStatus('idle'); 
                                 }}
-                                placeholder={provider === 'google' ? "AIza..." : "sk-..."}
+                                placeholder="sk-..."
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
                                 required
                             />
@@ -147,53 +168,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                 {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                         </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Globe className="w-3.5 h-3.5" /> 接口地址 (Base URL)
-                        </label>
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={baseUrl}
-                                onChange={(e) => {
-                                    setBaseUrl(e.target.value);
-                                    setTestStatus('idle');
-                                }}
-                                placeholder="https://api.openai.com/v1"
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-mono text-slate-800"
-                            />
-                        </div>
-                        
-                        {/* Quick Presets for OpenAI Compatible Providers */}
-                        {provider === 'openai' && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                {ENDPOINT_PRESETS.openai.map((preset) => (
-                                    <button
-                                        key={preset.name}
-                                        type="button"
-                                        onClick={() => {
-                                            setBaseUrl(preset.url);
-                                            setTestStatus('idle');
-                                        }}
-                                        className={`px-2 py-1 text-[10px] font-bold rounded border transition-colors ${
-                                            baseUrl === preset.url 
-                                            ? 'bg-blue-50 text-blue-600 border-blue-200' 
-                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                        }`}
-                                    >
-                                        {preset.name}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-
-                        <p className="text-[10px] text-slate-400 leading-relaxed px-1 mt-1">
-                            {provider === 'google' && '默认: https://generativelanguage.googleapis.com'}
-                            {provider === 'openai' && '支持 Grok, DeepSeek, Kimi 等兼容 /v1 协议的接口。'}
-                            {provider === 'anthropic' && '默认: https://api.anthropic.com'}
-                        </p>
                     </div>
 
                     {testStatus !== 'idle' && (
@@ -224,7 +198,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             }`}
                         >
-                            连接并加载模型
+                            连接并获取模型
                             <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>
