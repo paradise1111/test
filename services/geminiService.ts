@@ -49,6 +49,7 @@ const getFetchModelsUrl = (settings: ApiSettings) => {
         case 'google':
             return `${base}/v1beta/models?key=${settings.apiKey}`;
         case 'openai':
+            // Standard OpenAI compatible endpoint
             return `${base}/models`;
         case 'anthropic':
             // Anthropic doesn't have a public public list models endpoint that is standard
@@ -121,10 +122,15 @@ export const fetchModels = async (): Promise<string[]> => {
                 .map((m: any) => m.name.replace('models/', ''))
                 .filter((n: string) => n.includes('gemini'))
                 .sort((a: string, b: string) => b.localeCompare(a));
-        } else if (settings.provider === 'openai' && data.data) {
-             return data.data
-                .map((m: any) => m.id)
-                .sort();
+        } else if (settings.provider === 'openai') {
+             // For OpenAI compatible endpoints (OneAPI, NewAPI, Grok, DeepSeek, etc.)
+             // We trust the API to return the available models in data: [{id: '...'}] format
+             // We DO NOT filter by name, allowing user to see 'claude-3', 'grok-1', etc. provided by the proxy.
+             if (data.data && Array.isArray(data.data)) {
+                 return data.data
+                    .map((m: any) => m.id)
+                    .sort();
+             }
         }
         return [];
     } catch (e) {
@@ -415,6 +421,8 @@ export const analyzePageContent = async (
     } 
     else if (settings.provider === 'openai') {
         // OpenAI / Grok / DeepSeek format
+        // This format is "OpenAI Compatible" - most proxies (OneAPI) expect this structure 
+        // regardless of whether the backend model is actually Claude or Grok.
         payload = {
             model: cleanModel,
             messages: [

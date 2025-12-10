@@ -109,7 +109,7 @@ const HistoryItem: React.FC<{
     );
 };
 
-// Provider-specific default models to use if automatic fetching fails or is empty
+// Provider-specific default models to use ONLY if automatic fetching fails completely
 const PROVIDER_DEFAULTS: Record<AiProvider, string[]> = {
     google: [
         'gemini-2.5-flash',
@@ -117,17 +117,8 @@ const PROVIDER_DEFAULTS: Record<AiProvider, string[]> = {
         'gemini-1.5-pro-latest'
     ],
     openai: [
-        // OpenAI
         'gpt-4o',
         'gpt-4o-mini',
-        'gpt-4-turbo',
-        // xAI (Grok)
-        'grok-2-vision-1212',
-        'grok-2-1212',
-        'grok-beta',
-        // DeepSeek
-        'deepseek-chat',
-        'deepseek-reasoner'
     ],
     anthropic: [
         'claude-3-5-sonnet-20240620',
@@ -176,15 +167,18 @@ function App() {
 
   // Helper to load models
   const loadModelsForProvider = async (currentProvider: AiProvider) => {
+    // 1. Try to fetch dynamic list first
     const models = await fetchModels();
+    
     if (models.length > 0) {
+        // Success! Use the backend provided list.
         setAvailableModels(models);
         // If current selected model is not in new list, pick first
         if (!models.includes(selectedModel)) {
             setSelectedModel(models[0]);
         }
     } else {
-        // Fallback to static defaults
+        // Fallback to static defaults if API doesn't support list models or fails
         const defaults = PROVIDER_DEFAULTS[currentProvider] || PROVIDER_DEFAULTS.google;
         setAvailableModels(defaults);
         if (!defaults.includes(selectedModel)) {
